@@ -49,10 +49,13 @@ export function cleanPerson(p) {
 export const SIZES = { small: 24, medium: 32, large: 48 };
 
 export class World {
-  constructor(size = 32) {
-    this.size = size;
+  // sx = width (x), sz = depth (z); sz defaults to sx (a square). `size` is the longer side, for scaling things.
+  constructor(sx = 32, sz = sx) {
+    this.sx = sx;
+    this.sz = sz;
+    this.size = Math.max(sx, sz);
     this.height = HEIGHT;
-    this.cells = new Uint8Array(size * size * HEIGHT); // 0 = empty, otherwise a block id
+    this.cells = new Uint8Array(sx * sz * HEIGHT); // 0 = empty, otherwise a block id
     this.labels = []; // { id, x, y, z, text }
     this.people = []; // { id, x, y, z, rot, skin, hair, ... } see PERSON_DEFAULTS
     this.nextPersonId = 1;
@@ -65,18 +68,18 @@ export class World {
 
   // ----- cells -----
   index(x, y, z) {
-    return x + this.size * (z + this.size * y);
+    return x + this.sx * (z + this.sz * y);
   }
   inBounds(x, y, z) {
-    return x >= 0 && y >= 0 && z >= 0 && x < this.size && z < this.size && y < this.height;
+    return x >= 0 && y >= 0 && z >= 0 && x < this.sx && z < this.sz && y < this.height;
   }
   get(x, y, z) {
     return this.inBounds(x, y, z) ? this.cells[this.index(x, y, z)] : 0;
   }
   coords(i) {
-    const x = i % this.size;
-    const z = Math.floor(i / this.size) % this.size;
-    const y = Math.floor(i / (this.size * this.size));
+    const x = i % this.sx;
+    const z = Math.floor(i / this.sx) % this.sz;
+    const y = Math.floor(i / (this.sx * this.sz));
     return [x, y, z];
   }
   count() {
@@ -169,7 +172,7 @@ export class World {
   // those blocks, signs and people alone and only removes what was added afterwards. `from` may be another
   // world with the same size (used to restore the starting scene after a page reload).
   markStart(from = this) {
-    if (from.size !== this.size) return;
+    if (from.sx !== this.sx || from.sz !== this.sz) return;
     const labelKey = (l) => `${l.x},${l.y},${l.z},${l.text}`;
     this.start = { cells: from.cells.slice(), labels: new Set(from.labels.map(labelKey)), people: new Set(from.people.map((p) => p.id)) };
   }
@@ -191,8 +194,8 @@ export class World {
     const hi = [0, 1, 2].map((i) => Math.max(a[i], b[i]));
     const changes = [];
     for (let y = Math.max(lo[1], 0); y <= Math.min(hi[1], this.height - 1); y++) {
-      for (let z = Math.max(lo[2], 0); z <= Math.min(hi[2], this.size - 1); z++) {
-        for (let x = Math.max(lo[0], 0); x <= Math.min(hi[0], this.size - 1); x++) {
+      for (let z = Math.max(lo[2], 0); z <= Math.min(hi[2], this.sz - 1); z++) {
+        for (let x = Math.max(lo[0], 0); x <= Math.min(hi[0], this.sx - 1); x++) {
           const i = this.index(x, y, z);
           if (this.cells[i] && !(keep && keep(x, y, z, this.cells[i]))) {
             changes.push({ i, from: this.cells[i], to: 0 });
@@ -463,9 +466,9 @@ export class World {
   // cell = first solid block hit; prev = the empty cell just before it (where a new block goes);
   // floor = the ray reached the stand's top surface (y = 0) first, and prev is the cell to build on.
   raycast(origin, dir, maxDist = 400) {
-    const size = this.size;
+    const lim = [this.sx, this.height, this.sz];
     const lo = [0, 0, 0];
-    const hi = [size, this.height, size];
+    const hi = lim;
     // clip the ray to the world box
     let tMin = 0;
     let tMax = maxDist;
@@ -483,7 +486,7 @@ export class World {
     }
     const eps = 1e-6;
     const p = [0, 1, 2].map((a) => origin[a] + dir[a] * (tMin + eps));
-    const cell = p.map((v, a) => Math.min(Math.max(Math.floor(v), 0), a === 1 ? this.height - 1 : size - 1));
+    const cell = p.map((v, a) => Math.min(Math.max(Math.floor(v), 0), lim[a] - 1));
     const step = dir.map((d) => (d > 0 ? 1 : d < 0 ? -1 : 0));
     const tDelta = dir.map((d) => (d === 0 ? Infinity : Math.abs(1 / d)));
     const tNext = [0, 1, 2].map((a) => {
@@ -492,7 +495,7 @@ export class World {
       return (boundary - origin[a]) / dir[a];
     });
     let prev = null;
-    for (let guard = 0; guard < size * 4 + this.height * 2; guard++) {
+    for (let guard = 0; guard < (this.sx + this.sz) * 2 + this.height * 2; guard++) {
       if (this.get(cell[0], cell[1], cell[2])) return { cell: cell.slice(), prev, floor: false };
       prev = cell.slice();
       // advance along the axis with the nearest boundary
@@ -511,7 +514,7 @@ export class World {
   // ----- serialisation -----
   // Binary layout: [version, size, height] + RLE (varint run length, block id) + UTF-8 JSON {labels, meta}
   toBytes() {
-    const out = [1, this.size, this.height];
+    const out = this.sx === this.sz ? [1, this.sx, this.height] : [2, this.sx, this.sz, this.height]; // v1 = square (older saves), v2 = width x depth
     const varint = (n) => {
       while (n >= 128) {
         out.push((n & 127) | 128);
@@ -544,12 +547,13 @@ export class World {
   }
 
   static fromBytes(bytes) {
-    if (bytes[0] !== 1) throw new Error('Unknown scene version');
-    const size = bytes[1];
-    const height = bytes[2];
-    if (!(size >= 8 && size <= 96) || height !== HEIGHT) throw new Error('Bad scene size');
-    const world = new World(size);
-    let pos = 3;
+    if (bytes[0] !== 1 && bytes[0] !== 2) throw new Error('Unknown scene version');
+    const sx = bytes[1];
+    const sz = bytes[0] === 2 ? bytes[2] : sx;
+    let pos = bytes[0] === 2 ? 4 : 3;
+    const height = bytes[pos - 1];
+    if (!(sx >= 8 && sx <= 96 && sz >= 8 && sz <= 96) || height !== HEIGHT) throw new Error('Bad scene size');
+    const world = new World(sx, sz);
     const varint = () => {
       let result = 0;
       let shift = 0;

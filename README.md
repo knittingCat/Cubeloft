@@ -10,6 +10,7 @@ Live site: https://cubeloft.onrender.com
 
 **Build**
 - 35 blocks with pixel-art textures: grass, dirt, stone, cobblestone, sand, snow, ice, water, lava, wood, bricks, glass, glowstone, gold, obsidian, coloured wool and rainbow-coloured planks (red to violet) beside the natural planks.
+- Stage size: Small, Medium or Large, or Custom with your own width and depth in blocks (12 to 96, or keep it square).
 - Tools: Build, Erase, Box (fill an area), Select, Pick (copy a block's type), Sign (floating text), Person.
 - Copy and paste whole structures, with rotate and mirror. Build symmetrically across the left-right or front-back middle line.
 - Undo and redo for everything, including Clear, which removes only what you added and leaves the scene you started with.

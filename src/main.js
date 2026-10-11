@@ -27,10 +27,14 @@ const store = {
 };
 
 // ---------- starter scenes ----------
-function makeScene(size = 32, kind = 'grass') {
-  const w = new World(size);
+const NEW_MIN = 12; // blocks per side: the starter scenes (pond, path) need some room
+const NEW_MAX = 96;
+function makeScene(sx = 32, kind = 'grass', sz = sx) {
+  const w = new World(sx, sz);
+  const size = Math.max(sx, sz);
   const set = (x, y, z, id) => w.setMany([[x, y, z, id]], { record: false });
-  const c = size / 2;
+  const c = sx / 2;
+  const cz = sz / 2;
   // a tree: log trunk with a rounded top of leaves (blocks that are off the stand are skipped by the world)
   const tree = (tx, tz, height = 4) => {
     for (let y = 1; y <= height; y++) set(tx, y, tz, 11);
@@ -40,10 +44,10 @@ function makeScene(size = 32, kind = 'grass') {
     }
   };
   if (kind === 'grass' || kind === 'grassTree' || kind === 'forest') {
-    for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) set(x, 0, z, 1);
+    for (let z = 0; z < sz; z++) for (let x = 0; x < sx; x++) set(x, 0, z, 1);
   }
   if (kind === 'grassTree') {
-    tree(Math.floor(c) - 6, Math.floor(c) - 4, 4);
+    tree(Math.floor(c) - 6, Math.floor(cz) - 4, 4);
   } else if (kind === 'forest') {
     // the same forest every time: a small pond, a dirt path winding through, and trees, bushes and rocks around them
     let seed = 20261004;
@@ -58,8 +62,8 @@ function makeScene(size = 32, kind = 'grass') {
       for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) taken.add(`${x + dx},${z + dz}`);
     };
     // pond
-    const px = Math.floor(size * 0.7);
-    const pz = Math.floor(size * 0.3);
+    const px = Math.floor(sx * 0.7);
+    const pz = Math.floor(sz * 0.3);
     for (let dx = -7; dx <= 7; dx++) {
       for (let dz = -7; dz <= 7; dz++) {
         const d = Math.hypot(dx, dz);
@@ -70,39 +74,39 @@ function makeScene(size = 32, kind = 'grass') {
     mark(px, pz, 8); // keep canopies off the pond
     // path: from the front edge up towards the pond, wiggling
     let x = Math.floor(c) - 4;
-    for (let z = size - 1; z >= pz + 8; z--) {
+    for (let z = sz - 1; z >= pz + 8; z--) {
       x += Math.round(rand() * 2 - 1) * (z % 3 === 0 ? 1 : 0);
-      x = Math.max(2, Math.min(size - 3, x));
+      x = Math.max(2, Math.min(sx - 3, x));
       for (const dx of [0, 1]) {
         set(x + dx, 0, z, 2);
         mark(x + dx, z, 2); // and off the path
       }
     }
     // trees, spaced out
-    const count = Math.round((size * size) / 30); // as many as fit; canopies are 5 wide, so trees stay 6 apart and never touch
+    const count = Math.round((sx * sz) / 30); // as many as fit; canopies are 5 wide, so trees stay 6 apart and never touch
     let placed = 0;
     for (let tries = 0; tries < count * 12 && placed < count; tries++) {
-      const tx = 2 + Math.floor(rand() * (size - 4));
-      const tz = 2 + Math.floor(rand() * (size - 4));
+      const tx = 2 + Math.floor(rand() * (sx - 4));
+      const tz = 2 + Math.floor(rand() * (sz - 4));
       if (taken.has(`${tx},${tz}`)) continue;
       tree(tx, tz, 3 + Math.floor(rand() * 4));
       mark(tx, tz, 5);
       placed++;
     }
     // bushes and rocks in the gaps
-    for (let n = 0; n < size * 2; n++) {
-      const bx = 1 + Math.floor(rand() * (size - 2));
-      const bz = 1 + Math.floor(rand() * (size - 2));
+    for (let n = 0; n < (sx + sz); n++) {
+      const bx = 1 + Math.floor(rand() * (sx - 2));
+      const bz = 1 + Math.floor(rand() * (sz - 2));
       if (w.get(bx, 0, bz) !== 1 || w.get(bx, 1, bz) !== 0) continue;
       if (rand() < 0.65) set(bx, 1, bz, 13);
       else set(bx, 1, bz, 3);
     }
   } else if (kind === 'island') {
-    for (let z = 0; z < size; z++) {
-      for (let x = 0; x < size; x++) {
-        const d = Math.hypot(x + 0.5 - c, z + 0.5 - c);
-        if (d < size * 0.3) set(x, 0, z, 1);
-        else if (d < size * 0.37) set(x, 0, z, 5);
+    for (let z = 0; z < sz; z++) {
+      for (let x = 0; x < sx; x++) {
+        const d = Math.hypot((x + 0.5 - c) / (sx / 2), (z + 0.5 - cz) / (sz / 2)); // 1 = the edge of the stand; an oval on a non-square stand
+        if (d < 0.6) set(x, 0, z, 1);
+        else if (d < 0.74) set(x, 0, z, 5);
         else set(x, 0, z, 9);
       }
     }
@@ -210,7 +214,7 @@ function setTool(t) {
 }
 
 // A cell and its mirror images, for symmetric building.
-const withSymmetry = (cells) => symmetricCells(cells, symmetry, world.size);
+const withSymmetry = (cells) => symmetricCells(cells, symmetry, world.sx, world.sz);
 
 function cycleSymmetry() {
   symmetry = SYMMETRY_MODES[(SYMMETRY_MODES.indexOf(symmetry) + 1) % SYMMETRY_MODES.length];
@@ -765,7 +769,7 @@ function clearAll() {
     return;
   }
   if (!confirm('Clear everything you added? What was there when you started or opened this diorama (like the grass and a tree) stays. You can undo this with Cmd/Ctrl+Z.')) return;
-  const r = world.clearRegion([0, 0, 0], [world.size - 1, world.height - 1, world.size - 1], { keep, keepLabel, keepPerson });
+  const r = world.clearRegion([0, 0, 0], [world.sx - 1, world.height - 1, world.sz - 1], { keep, keepLabel, keepPerson });
   selection = null;
   view.showSelection(null);
   const extra = [r.labels ? `${r.labels} sign${r.labels > 1 ? 's' : ''}` : '', r.people ? `${r.people} ${r.people > 1 ? 'people' : 'person'}` : ''].filter(Boolean).join(' and ');
@@ -995,6 +999,14 @@ function wireUI() {
     $('#newCancel').textContent = first ? 'Skip' : 'Cancel';
     $('#newDialog').showModal();
   };
+  const syncCustom = () => {
+    const custom = $('#newSize').value === 'custom';
+    $('#newCustom').hidden = !custom;
+    $('#newDLabel').hidden = $('#newSquare').checked;
+    $('#newW').previousSibling.textContent = $('#newSquare').checked ? 'Width and depth (blocks)' : 'Width (blocks)';
+  };
+  $('#newSize').addEventListener('change', syncCustom);
+  $('#newSquare').addEventListener('change', syncCustom);
   openStartPicker = () => openNewDialog(true);
   $('#newBtn').addEventListener('click', () => openNewDialog(false));
   $('#newDialog').addEventListener('close', async () => {
@@ -1006,7 +1018,11 @@ function wireUI() {
     rememberCloud();
     updateBanner(false);
     history.replaceState(null, '', location.pathname + location.search);
-    const w = makeScene(Number($('#newSize').value), $('#newKind').value);
+    const preset = $('#newSize').value;
+    const clamp = (v) => Math.max(NEW_MIN, Math.min(NEW_MAX, Math.round(Number(v)) || 32));
+    const nx = preset === 'custom' ? clamp($('#newW').value) : Number(preset);
+    const nz = preset === 'custom' && !$('#newSquare').checked ? clamp($('#newD').value) : nx;
+    const w = makeScene(nx, $('#newKind').value, nz);
     await rememberStart(w);
     attachWorld(w);
     view.setWorld(w);

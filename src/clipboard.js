@@ -59,7 +59,7 @@ export function originFor(clip, cell) {
 export function placement(world, clip, origin) {
   const fits =
     origin[0] >= 0 && origin[1] >= 0 && origin[2] >= 0 &&
-    origin[0] + clip.w <= world.size && origin[2] + clip.d <= world.size && origin[1] + clip.h <= world.height;
+    origin[0] + clip.w <= world.sx && origin[2] + clip.d <= world.sz && origin[1] + clip.h <= world.height;
   const cells = clip.cells.map(([dx, dy, dz, id]) => [origin[0] + dx, origin[1] + dy, origin[2] + dz, id]);
   const labels = clip.labels.map((l) => ({ x: origin[0] + l.dx, y: origin[1] + l.dy, z: origin[2] + l.dz, text: l.text }));
   return { fits, cells, labels };
@@ -67,15 +67,15 @@ export function placement(world, clip, origin) {
 
 // Symmetric building: repeat cells across the middle of the diorama.
 // mode: 'off' | 'x' (left-right) | 'z' (front-back) | 'xz' (both). Returns de-duplicated [x, y, z] cells.
-export function symmetricCells(cells, mode, size) {
+export function symmetricCells(cells, mode, sx, sz = sx) {
   if (mode === 'off') return cells;
   const seen = new Map();
   const add = (x, y, z) => seen.set(`${x},${y},${z}`, [x, y, z]);
   for (const [x, y, z] of cells) {
     add(x, y, z);
-    if (mode.includes('x')) add(size - 1 - x, y, z);
-    if (mode.includes('z')) add(x, y, size - 1 - z);
-    if (mode === 'xz') add(size - 1 - x, y, size - 1 - z);
+    if (mode.includes('x')) add(sx - 1 - x, y, z);
+    if (mode.includes('z')) add(x, y, sz - 1 - z);
+    if (mode === 'xz') add(sx - 1 - x, y, sz - 1 - z);
   }
   return [...seen.values()];
 }

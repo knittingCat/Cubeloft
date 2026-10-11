@@ -419,4 +419,33 @@ await test('clearRegion deletes blocks and signs inside only, in one undo step',
   assert.equal(w.undoStack.length, steps);
 });
 
+await test('rectangular stage: bounds, index, clear, raycast, save and open', async () => {
+  const w = new World(20, 12);
+  assert.equal(w.sx, 20);
+  assert.equal(w.sz, 12);
+  assert.equal(w.setMany([[19, 0, 11, 4], [19, 0, 12, 4], [20, 0, 0, 4]]), 1); // only the corner inside is placed
+  assert.equal(w.get(19, 0, 11), 4);
+  assert.deepEqual(w.coords(w.index(19, 3, 11)), [19, 3, 11]);
+  const hit = w.raycast([10.5, 5, 6.5], [0, -1, 0]);
+  assert.equal(hit.floor, true);
+  assert.deepEqual(hit.prev, [10, 0, 6]);
+  assert.equal(w.raycast([25, 5, 6], [0, -1, 0]), null); // beside the stage
+  w.setMany([[1, 1, 1, 3]]);
+  assert.equal(w.clearRegion([0, 0, 0], [w.sx - 1, w.height - 1, w.sz - 1]).blocks, 2);
+  w.setMany([[19, 0, 11, 4], [0, 2, 5, 3]]);
+  const back = await decodeWorld(await encodeWorld(w));
+  assert.equal(back.sx, 20);
+  assert.equal(back.sz, 12);
+  assert.equal(back.get(19, 0, 11), 4);
+  assert.equal(back.get(0, 2, 5), 3);
+  const square = await decodeWorld(await encodeWorld(new World(16)));
+  assert.equal(square.sx, 16);
+  assert.equal(square.sz, 16);
+});
+
+await test('symmetry on a rectangular stage mirrors each axis by its own length', () => {
+  assert.deepEqual(symmetricCells([[2, 0, 3]], 'x', 20, 12), [[2, 0, 3], [17, 0, 3]]);
+  assert.deepEqual(symmetricCells([[2, 0, 3]], 'z', 20, 12), [[2, 0, 3], [2, 0, 8]]);
+});
+
 console.log(`${n} tests passed`);

@@ -94,9 +94,17 @@
       <h2 id="newTitle">New diorama</h2>
       <div id="newCards" class="tcards" role="radiogroup" aria-label="Start with"></div>
       <input type="hidden" id="newKind" value="grass">
-      <label>Size
-        <select id="newSize"><option value="24">Small (24×24)</option><option value="32" selected>Medium (32×32)</option><option value="48">Large (48×48)</option></select>
+      <label>Size (in blocks)
+        <select id="newSize"><option value="24">Small (24 x 24)</option><option value="32" selected>Medium (32 x 32)</option><option value="48">Large (48 x 48)</option><option value="custom">Custom...</option></select>
       </label>
+      <div id="newCustom" hidden>
+        <label class="inline"><input type="checkbox" id="newSquare" checked> Keep it square</label>
+        <div class="row">
+          <label>Width (blocks)<input type="number" id="newW" min="12" max="96" value="32"></label>
+          <label id="newDLabel" hidden>Depth (blocks)<input type="number" id="newD" min="12" max="96" value="32"></label>
+        </div>
+        <p class="hint">12 to 96 blocks per side. Width runs left to right, depth runs front to back.</p>
+      </div>
       <p class="hint" id="newHint">This replaces what you have now. Use Save first if you want to keep it.</p>
       <div class="row"><button value="cancel" id="newCancel">Cancel</button><button value="ok" class="primary">Start</button></div>
     </form>
@@ -125,7 +133,7 @@
         <li><b>The toolbar uses icons:</b> hold the pointer over one to see its name. In order: Build, Erase, Select, Box, Pick, Sign, Person, Copy, Paste, Mirror, Symmetry, Undo, Redo, Clear, Day, Sunset, Night, Account, Gallery, Reports (admins, or anyone picked to review one; a red number shows how many are waiting), New, Save, Picture, Help.</li>
         <li><b>Look around:</b> drag to rotate, scroll or pinch to zoom, right-drag (or two fingers) to move.</li>
         <li><b>Place a block:</b> pick one below, then click the ground or another block. You can also press <b>P</b> to place the selected block at the pointer.</li>
-        <li><b>Start something new:</b> the New icon (page with a plus) offers starting scenes: a grass field, a grass field with a tree, a forest, a small island or an empty stand.</li>
+        <li><b>Start something new:</b> the New icon (page with a plus) offers starting scenes: a grass field, a grass field with a tree, a forest, a small island or an empty stand. Pick Small, Medium or Large, or choose Custom to type your own width and depth in blocks (12 to 96). Tick Keep it square to use one number for both.</li>
         <li><b>Remove a block:</b> right-click it, or hold Shift and click. (The Erase tool does the same.)</li>
         <li><b>Build fast:</b> Box fills a whole area — click one corner, then the opposite corner. Hold Shift on the second click to clear a box.</li>
         <li><b>Copy a block:</b> Pick takes the block you click on.</li>

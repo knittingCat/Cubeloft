@@ -93,11 +93,16 @@ export class DioramaView {
   }
 
   get offset() {
-    return this.world.size / 2;
+    return this.world.sx / 2;
+  }
+  get offsetZ() {
+    return this.world.sz / 2;
   }
 
   // ----- stage: stand, grid, lights sized to the world -----
   buildStage() {
+    const sx = this.world.sx;
+    const sz = this.world.sz;
     const size = this.world.size;
     if (this.stage) {
       this.scene.remove(this.stage);
@@ -107,19 +112,24 @@ export class DioramaView {
     const dark = this.texture('planks');
     const floor = new THREE.MeshLambertMaterial({ map: this.texture('dirt'), color: 0xbbbbbb });
     const woodSide = new THREE.MeshLambertMaterial({ map: this.texture('logSide'), color: 0xb0a090 });
-    const slab = (w, h, y, mats) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), mats);
+    const slab = (w, h, d, y, mats) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
       m.position.y = y;
       m.receiveShadow = true;
       m.castShadow = true;
       this.stage.add(m);
     };
     const frame = new THREE.MeshLambertMaterial({ map: dark, color: 0x8d6b45 });
-    slab(size + 1.2, 1.4, -0.7, [woodSide, woodSide, floor, frame, woodSide, woodSide]);
-    slab(size + 2.6, 0.6, -1.7, [frame, frame, frame, frame, frame, frame]);
+    slab(sx + 1.2, 1.4, sz + 1.2, -0.7, [woodSide, woodSide, floor, frame, woodSide, woodSide]);
+    slab(sx + 2.6, 0.6, sz + 2.6, -1.7, [frame, frame, frame, frame, frame, frame]);
     this.scene.add(this.stage);
 
-    this.grid = new THREE.GridHelper(size, size, 0x000000, 0x000000);
+    const gridPts = [];
+    for (let i = 0; i <= sx; i++) gridPts.push(i - sx / 2, 0, -sz / 2, i - sx / 2, 0, sz / 2);
+    for (let j = 0; j <= sz; j++) gridPts.push(-sx / 2, 0, j - sz / 2, sx / 2, 0, j - sz / 2);
+    const gridGeo = new THREE.BufferGeometry();
+    gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPts, 3));
+    this.grid = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0x000000 }));
     this.grid.material.transparent = true;
     this.grid.material.opacity = 0.18;
     this.grid.position.y = 0.02;
@@ -259,6 +269,7 @@ export class DioramaView {
   rebuildGlow() {
     const w = this.world;
     const off = this.offset;
+    const offZ = this.offsetZ;
     const ptsById = new Map([...this.glowKinds.keys()].map((id) => [id, []]));
     const buckets = new Map();
     for (let i = 0; i < w.cells.length; i++) {
@@ -266,7 +277,7 @@ export class DioramaView {
       const pts = ptsById.get(id);
       if (!pts) continue;
       const [x, y, z] = w.coords(i);
-      const p = [x + 0.5 - off, y + 0.5, z + 0.5 - off];
+      const p = [x + 0.5 - off, y + 0.5, z + 0.5 - offZ];
       pts.push(...p);
       const k = `${id}:${Math.floor(x / 6)},${Math.floor(y / 6)},${Math.floor(z / 6)}`;
       const b = buckets.get(k) || { id, n: 0, x: 0, y: 0, z: 0 };
@@ -357,6 +368,7 @@ export class DioramaView {
     }
     const m = new THREE.Matrix4();
     const off = this.offset;
+    const offZ = this.offsetZ;
     for (const [id, idx] of lists) {
       const block = BLOCK_BY_ID.get(id);
       if (!block) continue;
@@ -379,7 +391,7 @@ export class DioramaView {
       }
       for (let k = 0; k < idx.length; k++) {
         const [x, y, z] = w.coords(idx[k]);
-        m.setPosition(x + 0.5 - off, y + 0.5, z + 0.5 - off);
+        m.setPosition(x + 0.5 - off, y + 0.5, z + 0.5 - offZ);
         entry.mesh.setMatrixAt(k, m);
       }
       entry.mesh.count = idx.length;
@@ -429,6 +441,7 @@ export class DioramaView {
     }
     const m = new THREE.Matrix4();
     const off = this.offset;
+    const offZ = this.offsetZ;
     for (const id of new Set([...this.flowMeshes.keys(), ...byId.keys()])) {
       const list = byId.get(id) || [];
       let entry = this.flowMeshes.get(id);
@@ -453,7 +466,7 @@ export class DioramaView {
         const c = it.c;
         const R = c.id === 10 ? 3 : 7;
         const h = c.id === 4 || c.fall ? 1 : 0.14 + (0.74 * (c.r + 1)) / (R + 1); // shallower further from the source
-        it.mat = new THREE.Matrix4().makeScale(1, h, 1).setPosition(c.x + 0.5 - off, c.y + h / 2, c.z + 0.5 - off);
+        it.mat = new THREE.Matrix4().makeScale(1, h, 1).setPosition(c.x + 0.5 - off, c.y + h / 2, c.z + 0.5 - offZ);
       }
       entry.items = list;
       entry.nextChange = 0;
@@ -478,12 +491,13 @@ export class DioramaView {
       let next = Infinity;
       const halo = [];
       const off = this.offset;
+    const offZ = this.offsetZ;
       for (const it of items) {
         if (all ? it.until !== Infinity : false) continue;
         const visible = all || (it.t <= t && t < it.until);
         if (visible) {
           mesh.setMatrixAt(k++, it.mat);
-          if (entry.id === 10) halo.push(it.c.x + 0.5 - off, it.c.y + 0.4, it.c.z + 0.5 - off);
+          if (entry.id === 10) halo.push(it.c.x + 0.5 - off, it.c.y + 0.4, it.c.z + 0.5 - offZ);
           if (it.until !== Infinity) next = Math.min(next, it.until);
         } else if (it.t > t) next = Math.min(next, it.t);
       }
@@ -553,10 +567,11 @@ export class DioramaView {
       }
     }
     const off = this.offset;
+    const offZ = this.offsetZ;
     for (const l of this.world.labels) {
       if (this.labelSprites.has(l.id)) continue;
       const sprite = this.makeLabelSprite(l.text);
-      sprite.position.set(l.x + 0.5 - off, l.y + 0.1, l.z + 0.5 - off);
+      sprite.position.set(l.x + 0.5 - off, l.y + 0.1, l.z + 0.5 - offZ);
       sprite.userData.labelId = l.id;
       this.scene.add(sprite);
       this.labelSprites.set(l.id, sprite);
@@ -767,6 +782,7 @@ export class DioramaView {
       }
     }
     const off = this.offset;
+    const offZ = this.offsetZ;
     for (const p of this.world.people) {
       const sig = JSON.stringify({ ...p, x: 0, y: 0, z: 0 });
       let entry = this.personGroups.get(p.id);
@@ -780,15 +796,16 @@ export class DioramaView {
         this.scene.add(entry.group);
         this.personGroups.set(p.id, entry);
       }
-      entry.group.position.set(p.x + 0.5 - off, p.y, p.z + 0.5 - off);
+      entry.group.position.set(p.x + 0.5 - off, p.y, p.z + 0.5 - offZ);
     }
   }
 
   // Which way (0-3) a figure on this cell should face to look toward the camera.
   facingRot(cell) {
     const off = this.offset;
+    const offZ = this.offsetZ;
     const dx = this.camera.position.x - (cell[0] + 0.5 - off);
-    const dz = this.camera.position.z - (cell[2] + 0.5 - off);
+    const dz = this.camera.position.z - (cell[2] + 0.5 - offZ);
     return (((Math.round(Math.atan2(dx, dz) / (Math.PI / 2))) % 4) + 4) % 4;
   }
 
@@ -900,7 +917,8 @@ export class DioramaView {
     L.headYaw = Math.max(-Math.PI, Math.min(Math.PI, L.headYaw));
     L.headPitch = Math.max(-0.7, Math.min(0.7, L.headPitch));
     const off = this.offset;
-    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + (lying ? 0.55 : L.pose === 'sitting' ? 0.9 : 1.4), L.z + 0.5 - off);
+    const offZ = this.offsetZ;
+    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + (lying ? 0.55 : L.pose === 'sitting' ? 0.9 : 1.4), L.z + 0.5 - offZ);
     if (lying) at.add(new THREE.Vector3(-1.1 * Math.sin(a), 0, -1.1 * Math.cos(a))); // head end
     this.camera.position.copy(at);
     const pitch = Math.max(-1.4, Math.min(1.4, (lying ? -1.1 : 0) + L.headPitch));
@@ -960,8 +978,9 @@ export class DioramaView {
     const rc = new THREE.Raycaster();
     rc.setFromCamera(ndc, this.camera);
     const off = this.offset;
+    const offZ = this.offsetZ;
     return {
-      origin: [rc.ray.origin.x + off, rc.ray.origin.y, rc.ray.origin.z + off],
+      origin: [rc.ray.origin.x + this.offset, rc.ray.origin.y, rc.ray.origin.z + this.offsetZ],
       dir: [rc.ray.direction.x, rc.ray.direction.y, rc.ray.direction.z],
       ndc,
       raycaster: rc,
@@ -981,7 +1000,8 @@ export class DioramaView {
       return;
     }
     const off = this.offset;
-    this.ghost.position.set(cell[0] + 0.5 - off, cell[1] + 0.5, cell[2] + 0.5 - off);
+    const offZ = this.offsetZ;
+    this.ghost.position.set(cell[0] + 0.5 - off, cell[1] + 0.5, cell[2] + 0.5 - offZ);
     this.ghost.scale.setScalar(scale);
     this.ghost.material.color.set(color);
     this.ghost.material.opacity = opacity;
@@ -996,9 +1016,9 @@ export class DioramaView {
     const tall = 14;
     this.planeX.visible = mode === 'x' || mode === 'xz';
     this.planeZ.visible = mode === 'z' || mode === 'xz';
-    this.planeX.scale.set(size, tall, 1);
+    this.planeX.scale.set(this.world.sz, tall, 1);
     this.planeX.position.set(0, tall / 2, 0);
-    this.planeZ.scale.set(size, tall, 1);
+    this.planeZ.scale.set(this.world.sx, tall, 1);
     this.planeZ.position.set(0, tall / 2, 0);
   }
 
@@ -1006,6 +1026,7 @@ export class DioramaView {
   showMirrorGhosts(cells, { color = 0xffffff, opacity = 0.35, scale = 1.002 } = {}) {
     this.dirty = true;
     const off = this.offset;
+    const offZ = this.offsetZ;
     while (this.mirrorGhosts.length < cells.length) {
       const g = new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false }));
       g.add(new THREE.LineSegments(new THREE.EdgesGeometry(this.geometry), new THREE.LineBasicMaterial({ color: 0x000000 })));
@@ -1017,7 +1038,7 @@ export class DioramaView {
       const c = cells[i];
       g.visible = !!c;
       if (!c) return;
-      g.position.set(c[0] + 0.5 - off, c[1] + 0.5, c[2] + 0.5 - off);
+      g.position.set(c[0] + 0.5 - off, c[1] + 0.5, c[2] + 0.5 - offZ);
       g.scale.setScalar(scale);
       g.material.color.set(color);
       g.material.opacity = opacity;
@@ -1031,10 +1052,11 @@ export class DioramaView {
       return;
     }
     const off = this.offset;
+    const offZ = this.offsetZ;
     const lo = [0, 1, 2].map((i) => Math.min(a[i], b[i]));
     const hi = [0, 1, 2].map((i) => Math.max(a[i], b[i]) + 1);
     this.region.scale.set(hi[0] - lo[0] + 0.02, hi[1] - lo[1] + 0.02, hi[2] - lo[2] + 0.02);
-    this.region.position.set((lo[0] + hi[0]) / 2 - off, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2 - off);
+    this.region.position.set((lo[0] + hi[0]) / 2 - off, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2 - offZ);
     this.region.visible = true;
   }
 
@@ -1045,10 +1067,11 @@ export class DioramaView {
       return;
     }
     const off = this.offset;
+    const offZ = this.offsetZ;
     const lo = [0, 1, 2].map((i) => Math.min(a[i], b[i]));
     const hi = [0, 1, 2].map((i) => Math.max(a[i], b[i]) + 1);
     this.selection.scale.set(hi[0] - lo[0] + 0.03, hi[1] - lo[1] + 0.03, hi[2] - lo[2] + 0.03);
-    this.selection.position.set((lo[0] + hi[0]) / 2 - off, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2 - off);
+    this.selection.position.set((lo[0] + hi[0]) / 2 - off, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2 - offZ);
     this.selection.visible = true;
   }
 
@@ -1060,8 +1083,9 @@ export class DioramaView {
       return;
     }
     const off = this.offset;
+    const offZ = this.offsetZ;
     const [w, h, d] = size;
-    this.footprint.position.set(origin[0] + w / 2 - off, origin[1] + h / 2, origin[2] + d / 2 - off);
+    this.footprint.position.set(origin[0] + w / 2 - off, origin[1] + h / 2, origin[2] + d / 2 - offZ);
     this.footprintEdges.scale.set(w + 0.02, h + 0.02, d + 0.02);
     this.footprintBody.scale.set(w, h, d);
     this.footprintPlate.scale.set(w, d, 1);
@@ -1170,9 +1194,10 @@ export class DioramaView {
       pos.x += -Math.sin(F.yaw) * fwd * 8 * dt;
       pos.z += -Math.cos(F.yaw) * fwd * 8 * dt;
     }
-    const lim = this.world.size / 2 + 12;
-    pos.x = Math.max(-lim, Math.min(lim, pos.x));
-    pos.z = Math.max(-lim, Math.min(lim, pos.z));
+    const limX = this.world.sx / 2 + 12;
+    const limZ = this.world.sz / 2 + 12;
+    pos.x = Math.max(-limX, Math.min(limX, pos.x));
+    pos.z = Math.max(-limZ, Math.min(limZ, pos.z));
     pos.y = Math.max(0.6, Math.min(this.world.height + 8, pos.y));
     this.camera.rotation.set(F.pitch, F.yaw, 0);
     this.dirty = true;
@@ -1236,10 +1261,11 @@ export class DioramaView {
   // page uses almost no CPU/GPU.
   loop() {
     requestAnimationFrame(this.loop);
-    const lim = this.world.size / 2 + 2;
+    const limX = this.world.sx / 2 + 2;
+    const limZ = this.world.sz / 2 + 2;
     const t = this.controls.target;
-    t.x = Math.max(-lim, Math.min(lim, t.x));
-    t.z = Math.max(-lim, Math.min(lim, t.z));
+    t.x = Math.max(-limX, Math.min(limX, t.x));
+    t.z = Math.max(-limZ, Math.min(limZ, t.z));
     t.y = Math.max(0, Math.min(this.world.height, t.y));
     if (this.flowWaiting) this.updateFlowReveal();
     if (this.flying) this.updateFly();
