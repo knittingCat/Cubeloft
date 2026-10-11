@@ -1,6 +1,6 @@
 # Cubeloft
 
-Build block dioramas in your browser. Place cubes, add people and signs, switch between day, sunset and night, then save a picture or share a link so others can look around your scene.
+Build block dioramas in your browser. Place blocks, add people and signs, switch between day, sunset and night, then save a picture or share a link so others can look around your scene.
 
 Made for school projects like "illustrate your favourite scene from a story": build the scene, post the picture or link on the class forum, and look at classmates' dioramas in a class gallery.
 
