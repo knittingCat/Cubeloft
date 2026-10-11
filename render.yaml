@@ -1,7 +1,7 @@
 # Render Blueprint: https://render.com/docs/blueprint-spec
 services:
   - type: web
-    name: blockscape
+    name: cubeloft
     runtime: node
     plan: free
     region: oregon
