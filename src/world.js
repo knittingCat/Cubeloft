@@ -46,6 +46,21 @@ export function cleanPerson(p) {
   out.z = Number(p.z);
   return out;
 }
+// ---- doors (one cell wide, two cells tall, 3/16 of a cell thick, like Minecraft's; not part of the block grid) ----
+// (x, y, z) is the lower cell; the door also fills the cell above. rot = which edge of the cell the closed door sits
+// on (0 = north/-z, 1 = east/+x, 2 = south/+z, 3 = west/-x). Open doors swing back onto the hinge edge (left side).
+export const DOOR_THICKNESS = 3 / 16;
+export const DOOR_WOODS = [12, 29, 30, 31, 32, 33, 34, 35]; // plank block ids: plain planks and the coloured ones
+export function cleanDoor(d) {
+  const out = { rot: 0, open: false, wood: 12 };
+  out.rot = Number.isInteger(d.rot) ? ((d.rot % 4) + 4) % 4 : 0;
+  out.open = d.open === true;
+  if (DOOR_WOODS.includes(d.wood)) out.wood = d.wood;
+  out.x = Number(d.x);
+  out.y = Number(d.y);
+  out.z = Number(d.z);
+  return out;
+}
 export const SIZES = { small: 24, medium: 32, large: 48 };
 
 export class World {
@@ -59,6 +74,8 @@ export class World {
     this.labels = []; // { id, x, y, z, text }
     this.people = []; // { id, x, y, z, rot, skin, hair, ... } see PERSON_DEFAULTS
     this.nextPersonId = 1;
+    this.doors = []; // { id, x, y, z, rot, open, wood } see cleanDoor
+    this.nextDoorId = 1;
     this.meta = { sky: 'day', title: '', subtitle: '' };
     this.undoStack = [];
     this.redoStack = [];
@@ -174,13 +191,16 @@ export class World {
   markStart(from = this) {
     if (from.sx !== this.sx || from.sz !== this.sz) return;
     const labelKey = (l) => `${l.x},${l.y},${l.z},${l.text}`;
-    this.start = { cells: from.cells.slice(), labels: new Set(from.labels.map(labelKey)), people: new Set(from.people.map((p) => p.id)) };
+    this.start = { cells: from.cells.slice(), labels: new Set(from.labels.map(labelKey)), people: new Set(from.people.map((p) => p.id)), doors: new Set(from.doors.map((d) => d.id)) };
   }
   isStartCell(x, y, z, id) {
     return !!this.start && this.start.cells[this.index(x, y, z)] === id;
   }
   isStartLabel(l) {
     return !!this.start && this.start.labels.has(`${l.x},${l.y},${l.z},${l.text}`);
+  }
+  isStartDoor(d) {
+    return !!this.start && this.start.doors.has(d.id);
   }
   isStartPerson(p) {
     return !!this.start && this.start.people.has(p.id);
@@ -189,7 +209,7 @@ export class World {
   // Remove every block and sign inside the box (corners in any order) as ONE undo step.
   // keep(x, y, z, id) => true leaves that block alone (used so Clear keeps the starting scene).
   // keepLabel(label) / keepPerson(person) => true leaves that sign / person alone.
-  clearRegion(a, b, { keep = null, keepLabel = null, keepPerson = null } = {}) {
+  clearRegion(a, b, { keep = null, keepLabel = null, keepPerson = null, keepDoor = null } = {}) {
     const lo = [0, 1, 2].map((i) => Math.min(a[i], b[i]));
     const hi = [0, 1, 2].map((i) => Math.max(a[i], b[i]));
     const changes = [];
@@ -211,13 +231,17 @@ export class World {
     this.labels = this.labels.filter((l) => !goesL(l));
     const peopleRemove = this.people.filter(goesP).map((p) => ({ ...p }));
     this.people = this.people.filter((p) => !goesP(p));
-    if (!changes.length && !labelsRemove.length && !peopleRemove.length) return { blocks: 0, labels: 0, people: 0 };
-    this.undoStack.push({ cells: changes, labelsRemove, peopleRemove });
+    const goesD = (d) => inside(d) && !(keepDoor && keepDoor(d));
+    const doorsRemove = this.doors.filter(goesD).map((d) => ({ ...d }));
+    this.doors = this.doors.filter((d) => !goesD(d));
+    if (!changes.length && !labelsRemove.length && !peopleRemove.length && !doorsRemove.length) return { blocks: 0, labels: 0, people: 0, doors: 0 };
+    this.undoStack.push({ cells: changes, labelsRemove, peopleRemove, doorsRemove });
     this.redoStack.length = 0;
     if (changes.length) this.emit({ type: 'cells', changes });
     if (labelsRemove.length) this.emit({ type: 'labels' });
     if (peopleRemove.length) this.emit({ type: 'people' });
-    return { blocks: changes.length, labels: labelsRemove.length, people: peopleRemove.length };
+    if (doorsRemove.length) this.emit({ type: 'doors' });
+    return { blocks: changes.length, labels: labelsRemove.length, people: peopleRemove.length, doors: doorsRemove.length };
   }
 
   boxCells(a, b) {
@@ -395,6 +419,54 @@ export class World {
     return true;
   }
 
+  // ----- doors -----
+  // The cell above must be free of blocks and of another door, and inside the stand.
+  canPlaceDoor(x, y, z, ignoreId = null) {
+    if (!this.inBounds(x, y, z) || !this.inBounds(x, y + 1, z)) return false;
+    if (this.get(x, y, z) || this.get(x, y + 1, z)) return false;
+    return !this.doors.some((d) => d.id !== ignoreId && d.x === x && d.z === z && Math.abs(d.y - y) < 2);
+  }
+  addDoor(props, { record = true, id } = {}) {
+    const d = cleanDoor(props);
+    if (![d.x, d.y, d.z].every(Number.isInteger) || !this.inBounds(d.x, d.y, d.z) || !this.inBounds(d.x, d.y + 1, d.z)) return null;
+    d.id = id ?? this.nextDoorId++;
+    this.nextDoorId = Math.max(this.nextDoorId, d.id + 1);
+    this.doors.push(d);
+    if (record) {
+      this.undoStack.push({ doorAdd: { ...d } });
+      this.redoStack.length = 0;
+    }
+    this.emit({ type: 'doors' });
+    return d;
+  }
+  removeDoor(id, { record = true } = {}) {
+    const k = this.doors.findIndex((d) => d.id === id);
+    if (k < 0) return false;
+    const [d] = this.doors.splice(k, 1);
+    if (record) {
+      this.undoStack.push({ doorRemove: { ...d } });
+      this.redoStack.length = 0;
+    }
+    this.emit({ type: 'doors' });
+    return true;
+  }
+  getDoor(id) {
+    return this.doors.find((d) => d.id === id) || null;
+  }
+  // Open / close / turn / re-wood a door as one undo step.
+  changeDoor(id, changes, { record = true } = {}) {
+    const d = this.getDoor(id);
+    if (!d) return null;
+    const before = { ...d };
+    Object.assign(d, cleanDoor({ ...d, ...changes }), { id: d.id });
+    if (record) {
+      this.undoStack.push({ doorUpdate: { before, after: { ...d } } });
+      this.redoStack.length = 0;
+    }
+    this.emit({ type: 'doors' });
+    return d;
+  }
+
   // ----- history -----
   undo() {
     const step = this.undoStack.pop();
@@ -433,6 +505,19 @@ export class World {
     if (step.personUpdate) {
       const target = reverse ? step.personUpdate.before : step.personUpdate.after;
       this.updatePerson(target.id, target);
+    }
+    if (step.doorAdd) {
+      if (reverse) this.removeDoor(step.doorAdd.id, { record: false });
+      else this.addDoor(step.doorAdd, { record: false, id: step.doorAdd.id });
+    }
+    if (step.doorRemove) {
+      if (reverse) this.addDoor(step.doorRemove, { record: false, id: step.doorRemove.id });
+      else this.removeDoor(step.doorRemove.id, { record: false });
+    }
+    if (step.doorUpdate) this.changeDoor(step.doorUpdate.after.id, reverse ? step.doorUpdate.before : step.doorUpdate.after, { record: false });
+    if (step.doorsRemove) {
+      if (reverse) for (const d of step.doorsRemove) this.addDoor(d, { record: false, id: d.id });
+      else for (const d of step.doorsRemove) this.removeDoor(d.id, { record: false });
     }
     if (step.peopleRemove) {
       if (reverse) for (const p of step.peopleRemove) this.addPerson(p, { record: false, id: p.id });
@@ -535,7 +620,7 @@ export class World {
     }
     varint(run);
     out.push(cur);
-    const json = new TextEncoder().encode(JSON.stringify({ labels: this.labels, meta: this.meta, people: this.people }));
+    const json = new TextEncoder().encode(JSON.stringify({ labels: this.labels, meta: this.meta, people: this.people, doors: this.doors }));
     const header = [];
     let n = json.length;
     while (n >= 128) {
@@ -577,6 +662,7 @@ export class World {
     const json = JSON.parse(new TextDecoder().decode(bytes.subarray(pos, pos + jsonLen)));
     for (const l of json.labels || []) world.addLabel(l.x, l.y, l.z, String(l.text).slice(0, 80), { record: false, id: l.id });
     for (const p of json.people || []) world.addPerson({ ...p }, { record: false, id: Number.isInteger(p.id) ? p.id : undefined });
+    for (const d of json.doors || []) world.addDoor({ ...d }, { record: false, id: Number.isInteger(d.id) ? d.id : undefined });
     Object.assign(world.meta, json.meta || {});
     return world;
   }

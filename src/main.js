@@ -1,4 +1,4 @@
-import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES } from './world.js';
+import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS } from './world.js';
 import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
 import { textureCanvas, topTextureName } from './textures.js';
 import { DioramaView } from './view.js';
@@ -237,10 +237,11 @@ function saveSuffix() {
 }
 
 function updateStatus() {
-  const names = { build: 'Build', erase: 'Erase', box: 'Box fill', pick: 'Pick', label: 'Sign', select: 'Select', paste: 'Paste', person: 'Person' };
+  const names = { build: 'Build', erase: 'Erase', box: 'Box fill', pick: 'Pick', label: 'Sign', select: 'Select', paste: 'Paste', person: 'Person', door: 'Door' };
   let hint = tool === 'box' ? (boxA ? ' — click the opposite corner' : ' — click a first corner') : '';
   if (tool === 'select') hint = selA ? ' — click the opposite corner' : selection ? ' — copied — press Paste' : ' — click one corner of the area';
   if (tool === 'person') hint = ' — click to put a person here, or click one to change their outfit';
+  if (tool === 'door') hint = ' — click to place a door (it takes the planks colour you have selected), click one to open or close it, R turns it';
   if (tool === 'paste') hint = clip ? ` — ${clip.w}×${clip.h}×${clip.d} footprint: move it, then click to place` : '';
   $('#status').textContent = `${world.count()} blocks · ${names[tool]}${hint} · ${BLOCK_BY_ID.get(selected).name}${symmetry !== 'off' ? ' · symmetry: ' + SYMMETRY_NAMES[symmetry] : ''}${saveSuffix() ? ' · ' + saveSuffix() : ''}`;
   $('#undo').disabled = !world.undoStack.length;
@@ -535,7 +536,10 @@ function refreshHover(e) {
     if (selA && corner) view.showRegion(selA, corner);
     return;
   }
-  if (tool === 'person') {
+  if (tool === 'door') {
+    view.showGhost(hit.prev, { color: 0xffffff, opacity: 0.18 });
+    if (hit.prev) view.showMirrorGhosts([[hit.prev[0], hit.prev[1] + 1, hit.prev[2]]], { color: 0xffffff, opacity: 0.18 });
+  } else if (tool === 'person') {
     view.showGhost(hit.prev, { color: 0xffffff, opacity: 0.18 });
   } else if (tool === 'pick') {
     view.showGhost(hit.cell, { color: 0xffffff, opacity: 0.25, scale: 1.03 });
@@ -616,6 +620,17 @@ async function actAt(e, button) {
     return;
   }
   const erasing = tool === 'erase' || button === 2 || e.shiftKey;
+  // doors: click one with the Door tool to open / close (or recolour) it; Erase removes it
+  if (!['box', 'select', 'paste'].includes(tool)) {
+    const doorId = tool === 'door' || erasing ? view.doorAt(ray) : null;
+    if (doorId != null) {
+      const door = world.getDoor(doorId);
+      if (erasing) world.removeDoor(doorId);
+      else if (DOOR_WOODS.includes(selected) && selected !== door.wood) world.changeDoor(doorId, { wood: selected });
+      else world.changeDoor(doorId, { open: !door.open });
+      return;
+    }
+  }
   // a person is edited when you click them, or the cell their feet or head are in (even if that is a block's face)
   const personId = view.personAt(ray) ?? (erasing ? null : personAtCells(hit));
   if (personId != null && !['box', 'select', 'paste'].includes(tool)) {
@@ -631,6 +646,16 @@ async function actAt(e, button) {
     }
   }
   if (!hit) return;
+  if (tool === 'door') {
+    if (!hit.prev) return;
+    const [x, y, z] = hit.prev;
+    if (!world.canPlaceDoor(x, y, z)) {
+      toast('A door needs two free cells, one above the other.');
+      return;
+    }
+    world.addDoor({ x, y, z, rot: view.facingRot(hit.prev), wood: DOOR_WOODS.includes(selected) ? selected : 12 });
+    return;
+  }
   if (tool === 'person') {
     if (!hit.prev) return;
     const person = world.addPerson({ x: hit.prev[0], y: hit.prev[1], z: hit.prev[2], ...randomOutfit(), rot: view.facingRot(hit.prev) });
@@ -732,6 +757,13 @@ function placeAtPointer(e) {
   refreshHover();
 }
 
+// R with the Door tool: turn the door under the pointer a quarter turn.
+function turnDoorAtPointer() {
+  if (!hoverInfo || isViewOnly() || view.looking) return;
+  const id = view.doorAt(currentHit(hoverInfo).ray);
+  if (id != null) world.changeDoor(id, { rot: world.getDoor(id).rot + 1 });
+}
+
 function copySelection(prefix = '') {
   if (!selection) {
     toast('Select an area first: Select, then click one corner and the opposite corner.');
@@ -756,7 +788,8 @@ function clearAll() {
   const keep = (x, y, z, id) => (y === 0 && id === 1) || world.isStartCell(x, y, z, id);
   const keepLabel = (l) => world.isStartLabel(l);
   const keepPerson = (p) => world.isStartPerson(p);
-  let anything = world.labels.some((l) => !keepLabel(l)) || world.people.some((p) => !keepPerson(p));
+  const keepDoor = (d) => world.isStartDoor(d);
+  let anything = world.labels.some((l) => !keepLabel(l)) || world.people.some((p) => !keepPerson(p)) || world.doors.some((d) => !keepDoor(d));
   for (let i = 0; i < world.cells.length && !anything; i++) {
     const id = world.cells[i];
     if (id) {
@@ -769,10 +802,10 @@ function clearAll() {
     return;
   }
   if (!confirm('Clear everything you added? What was there when you started or opened this diorama (like the grass and a tree) stays. You can undo this with Cmd/Ctrl+Z.')) return;
-  const r = world.clearRegion([0, 0, 0], [world.sx - 1, world.height - 1, world.sz - 1], { keep, keepLabel, keepPerson });
+  const r = world.clearRegion([0, 0, 0], [world.sx - 1, world.height - 1, world.sz - 1], { keep, keepLabel, keepPerson, keepDoor });
   selection = null;
   view.showSelection(null);
-  const extra = [r.labels ? `${r.labels} sign${r.labels > 1 ? 's' : ''}` : '', r.people ? `${r.people} ${r.people > 1 ? 'people' : 'person'}` : ''].filter(Boolean).join(' and ');
+  const extra = [r.labels ? `${r.labels} sign${r.labels > 1 ? 's' : ''}` : '', r.people ? `${r.people} ${r.people > 1 ? 'people' : 'person'}` : '', r.doors ? `${r.doors} door${r.doors > 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ');
   toast(`Cleared ${r.blocks} blocks${extra ? ' and ' + extra : ''}. The starting scene stays. Cmd/Ctrl+Z brings it all back.`);
   updateStatus();
 }
@@ -780,7 +813,7 @@ function clearAll() {
 function deleteSelection() {
   if (!selection) return false;
   const r = world.clearRegion(selection.a, selection.b);
-  if (!r.blocks && !r.labels) {
+  if (!r.blocks && !r.labels && !r.doors) {
     toast('Nothing to delete in that area.');
     return true;
   }
@@ -1107,6 +1140,8 @@ function wireUI() {
     else if (key === 'p') placeAtPointer(e);
     else if (key === 'v') clip ? setTool('paste') : toast('Nothing to paste yet — use Select on an area first.');
     else if (key === 'h') setTool('person');
+    else if (key === 'd') setTool('door');
+    else if (key === 'r' && tool === 'door') turnDoorAtPointer();
     else if (key === 'q') rotateClip();
     else if (key === 'm') mirrorClip();
     else if (key === 'y') cycleSymmetry();

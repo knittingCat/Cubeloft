@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
 import { textureCanvas } from './textures.js';
+import { DOOR_THICKNESS } from './world.js';
 
 const SKIES = {
   day: { top: '#5aa9ee', bottom: '#cfeaff', hemiSky: 0xdbeeff, hemiGround: 0x8a7a62, hemi: 2.6, sun: 0xfff2d6, sunI: 3.4, sunPos: [0.8, 1.2, 0.55], stars: false },
@@ -17,6 +18,7 @@ export class DioramaView {
     this.labelSprites = new Map(); // label id -> Sprite
     this.personGroups = new Map(); // person id -> { sig, group }
     this.personMats = new Map(); // colour -> material (shared)
+    this.doorGroups = new Map(); // door id -> { sig, group }
     this.textures = new Map();
     this.flowMeshes = new Map();
     this.materials = new Map();
@@ -76,6 +78,7 @@ export class DioramaView {
     this.rebuildAll();
     this.rebuildLabels();
     this.rebuildPeople();
+    this.rebuildDoors();
 
     this.onResize = () => this.resize();
     window.addEventListener('resize', this.onResize);
@@ -86,6 +89,7 @@ export class DioramaView {
       if (e.type === 'cells') this.rebuild(new Set(e.changes.flatMap((c) => [c.from, c.to])));
       else if (e.type === 'labels') this.rebuildLabels();
       else if (e.type === 'people') this.rebuildPeople();
+      else if (e.type === 'doors') this.rebuildDoors();
     });
 
     this.loop = this.loop.bind(this);
@@ -538,11 +542,14 @@ export class DioramaView {
       this.disposePerson(group);
     }
     this.personGroups.clear();
+    for (const { group } of this.doorGroups.values()) this.scene.remove(group);
+    this.doorGroups.clear();
     this.world = world;
     this.buildStage();
     this.rebuildAll();
     this.rebuildLabels();
     this.rebuildPeople();
+    this.rebuildDoors();
     this.setSky(world.meta.sky || 'day');
     this.resetCamera();
     this.showSymmetry(this.symMode || 'off'); // planes follow the new stand size
@@ -551,6 +558,7 @@ export class DioramaView {
       if (e.type === 'cells') this.rebuild(new Set(e.changes.flatMap((c) => [c.from, c.to])));
       else if (e.type === 'labels') this.rebuildLabels();
       else if (e.type === 'people') this.rebuildPeople();
+      else if (e.type === 'doors') this.rebuildDoors();
     });
   }
 
@@ -798,6 +806,70 @@ export class DioramaView {
       }
       entry.group.position.set(p.x + 0.5 - off, p.y, p.z + 0.5 - offZ);
     }
+  }
+
+  // ----- doors -----
+  // Two stacked 1 x 1 x 3/16 planks (so the plank texture is not stretched) plus a handle. Built around the
+  // lower cell's centre; closed = on the `rot` edge, open = swung back onto the left (hinge) edge.
+  buildDoor(d) {
+    const T = DOOR_THICKNESS;
+    const g = new THREE.Group();
+    const tex = BLOCK_BY_ID.get(d.wood)?.tex || 'planks';
+    const mat = new THREE.MeshLambertMaterial({ map: this.texture(typeof tex === 'string' ? tex : tex.side) });
+    const handleMat = this.mat('#2b2118');
+    const panel = new THREE.Group();
+    for (const y of [0.5, 1.5]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, T), mat);
+      m.position.y = y;
+      m.castShadow = m.receiveShadow = true;
+      panel.add(m);
+    }
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, T + 0.08), handleMat);
+    handle.position.set(0.36, 1, 0);
+    panel.add(handle);
+    if (d.open) {
+      panel.rotation.y = -Math.PI / 2;
+      panel.position.set(-0.5 + T / 2, 0, 0);
+    } else panel.position.set(0, 0, -0.5 + T / 2);
+    g.add(panel);
+    g.rotation.y = -d.rot * (Math.PI / 2);
+    return g;
+  }
+
+  rebuildDoors() {
+    this.dirty = true;
+    const alive = new Set(this.world.doors.map((d) => d.id));
+    for (const [id, entry] of this.doorGroups) {
+      if (!alive.has(id)) {
+        this.scene.remove(entry.group);
+        this.doorGroups.delete(id);
+      }
+    }
+    const off = this.offset;
+    const offZ = this.offsetZ;
+    for (const d of this.world.doors) {
+      const sig = JSON.stringify({ ...d, x: 0, y: 0, z: 0 });
+      let entry = this.doorGroups.get(d.id);
+      if (!entry || entry.sig !== sig) {
+        if (entry) this.scene.remove(entry.group);
+        entry = { sig, group: this.buildDoor(d) };
+        entry.group.userData.doorId = d.id;
+        this.scene.add(entry.group);
+        this.doorGroups.set(d.id, entry);
+      }
+      entry.group.position.set(d.x + 0.5 - off, d.y, d.z + 0.5 - offZ);
+    }
+  }
+
+  // id of the door under the pointer, or null
+  doorAt(ray) {
+    const roots = [...this.doorGroups.values()].map((e) => e.group);
+    for (const h of ray.raycaster.intersectObjects(roots, true)) {
+      let o = h.object;
+      while (o && o.userData.doorId === undefined) o = o.parent;
+      if (o) return o.userData.doorId;
+    }
+    return null;
   }
 
   // Which way (0-3) a figure on this cell should face to look toward the camera.

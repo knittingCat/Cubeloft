@@ -1,10 +1,11 @@
-import { cleanPerson } from './world.js';
+import { cleanPerson, cleanDoor } from './world.js';
 
 // Live editing in the browser: while a class diorama is open for editing, every change is sent to the server,
 // which passes it on to everyone else editing the same diorama, and theirs arrive here.
 //   cells: [index, block id] pairs  ·  labels / people: the whole (small) list  ·  state: a whole saved scene
 const MAX_LABELS = 500;
 const MAX_PEOPLE = 200;
+const MAX_DOORS = 500;
 
 export function createLive({ getWorld, encode, onPeers, onState, onLost }) {
   let ws = null;
@@ -56,6 +57,18 @@ export function createLive({ getWorld, encode, onPeers, onState, onLost }) {
     world.emit({ type: 'people', remote: true });
   }
 
+  function applyDoors(world, list) {
+    if (!Array.isArray(list) || list.length > MAX_DOORS) return;
+    const doors = [];
+    for (const raw of list) {
+      if (!raw || !Number.isInteger(raw.id) || ![raw.x, raw.y, raw.z].every(Number.isInteger) || !world.inBounds(raw.x, raw.y, raw.z) || !world.inBounds(raw.x, raw.y + 1, raw.z)) continue;
+      doors.push({ ...cleanDoor(raw), id: raw.id });
+    }
+    world.doors = doors;
+    world.nextDoorId = Math.max(world.nextDoorId, ...doors.map((d) => d.id + 1));
+    world.emit({ type: 'doors', remote: true });
+  }
+
   async function onMessage(raw) {
     let msg;
     try {
@@ -76,6 +89,7 @@ export function createLive({ getWorld, encode, onPeers, onState, onLost }) {
     } else if (msg.t === 'cells') applyCells(world, msg.c);
     else if (msg.t === 'labels') applyLabels(world, msg.labels);
     else if (msg.t === 'people') applyPeople(world, msg.people);
+    else if (msg.t === 'doors') applyDoors(world, msg.doors);
   }
 
   function start() {
@@ -127,6 +141,7 @@ export function createLive({ getWorld, encode, onPeers, onState, onLost }) {
       if (event.type === 'cells') post({ t: 'cells', c: event.changes.map((c) => [c.i, c.to]) });
       else if (event.type === 'labels') post({ t: 'labels', labels: world.labels });
       else if (event.type === 'people') post({ t: 'people', people: world.people });
+      else if (event.type === 'doors') post({ t: 'doors', doors: world.doors });
     },
   };
 }

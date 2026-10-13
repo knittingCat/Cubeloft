@@ -401,7 +401,7 @@ await test('clearRegion deletes blocks and signs inside only, in one undo step',
   w.addLabel(9, 0, 9, 'outside');
   const before = w.count();
   const r = w.clearRegion([4, 2, 4], [1, 0, 1]); // corners in any order
-  assert.deepEqual(r, { blocks: 4 * 3 * 4, labels: 0, people: 0 }); // the sign at y=3 is above the box
+  assert.deepEqual(r, { blocks: 4 * 3 * 4, labels: 0, people: 0, doors: 0 }); // the sign at y=3 is above the box
   assert.equal(w.count(), before - 48);
   assert.equal(w.get(0, 0, 0), 3); // outside the box is untouched
   const r2 = w.clearRegion([0, 0, 0], [5, 3, 5]);
@@ -413,7 +413,7 @@ await test('clearRegion deletes blocks and signs inside only, in one undo step',
   assert.equal(w.count(), before - 48);
   assert.ok(w.redo());
   assert.equal(w.count(), 0);
-  assert.deepEqual(w.clearRegion([0, 0, 0], [5, 3, 5]), { blocks: 0, labels: 0, people: 0 }); // nothing left: no history entry
+  assert.deepEqual(w.clearRegion([0, 0, 0], [5, 3, 5]), { blocks: 0, labels: 0, people: 0, doors: 0 }); // nothing left: no history entry
   const steps = w.undoStack.length;
   w.clearRegion([0, 0, 0], [1, 1, 1]);
   assert.equal(w.undoStack.length, steps);
@@ -446,6 +446,36 @@ await test('rectangular stage: bounds, index, clear, raycast, save and open', as
 await test('symmetry on a rectangular stage mirrors each axis by its own length', () => {
   assert.deepEqual(symmetricCells([[2, 0, 3]], 'x', 20, 12), [[2, 0, 3], [17, 0, 3]]);
   assert.deepEqual(symmetricCells([[2, 0, 3]], 'z', 20, 12), [[2, 0, 3], [2, 0, 8]]);
+});
+
+await test('doors: placement rules, open/colour changes, undo/redo, save round trip, clear', async () => {
+  const w = new World(12);
+  w.setMany([[3, 1, 3, 3]]); // a block where the door's upper half would go
+  assert.equal(w.canPlaceDoor(3, 0, 3), false);
+  assert.equal(w.canPlaceDoor(4, 0, 3), true);
+  assert.equal(w.canPlaceDoor(4, 31, 3), false); // no room above
+  const d = w.addDoor({ x: 4, y: 0, z: 3, rot: 5, wood: 29 });
+  assert.equal(d.rot, 1);
+  assert.equal(d.wood, 29);
+  assert.equal(w.canPlaceDoor(4, 1, 3), false); // overlaps the door's upper half
+  assert.equal(w.addDoor({ x: 4, y: 0, z: 3, wood: 999 }).wood, 12); // unknown colour -> plain planks
+  w.changeDoor(d.id, { open: true });
+  w.changeDoor(d.id, { wood: 33 });
+  assert.equal(w.getDoor(d.id).open, true);
+  w.undo();
+  assert.equal(w.getDoor(d.id).wood, 29);
+  w.undo();
+  assert.equal(w.getDoor(d.id).open, false);
+  w.redo();
+  assert.equal(w.getDoor(d.id).open, true);
+  const back = await decodeWorld(await encodeWorld(w));
+  assert.equal(back.doors.length, 2);
+  assert.equal(back.getDoor(d.id).open, true);
+  const r = w.clearRegion([0, 0, 0], [11, 31, 11]);
+  assert.equal(r.doors, 2);
+  assert.equal(w.doors.length, 0);
+  w.undo();
+  assert.equal(w.doors.length, 2);
 });
 
 console.log(`${n} tests passed`);
