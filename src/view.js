@@ -844,10 +844,17 @@ export class DioramaView {
     slab.position.y = 1;
     slab.castShadow = slab.receiveShadow = true;
     panel.add(slab);
-    // the knob, on both faces, near the free edge at about hand height
-    const knob = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, T + 0.1), this.mat('#3a2a18'));
-    knob.position.set(0.36, 0.95, 0);
-    panel.add(knob);
+    // the handle: a short stem through the door with a knob on each face, near the free edge at about hand height
+    const handleMat = this.mat('#3a2a18');
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, T + 0.2), handleMat);
+    stem.position.set(0.36, 0.95, 0);
+    panel.add(stem);
+    for (const side of [1, -1]) {
+      const knob = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.07), handleMat);
+      knob.position.set(0.36, 0.95, side * (T / 2 + 0.1));
+      knob.castShadow = true;
+      panel.add(knob);
+    }
     if (d.open) {
       panel.rotation.y = -Math.PI / 2;
       panel.position.set(-0.5 + T / 2, 0, 0);
