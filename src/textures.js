@@ -199,6 +199,53 @@ export function textureCanvas(name) {
   return canvas;
 }
 
+// A 16x32 door face in the style of Minecraft's wooden door, tinted by a planks texture name ("planks" or
+// "planks:r,g,b"): planks with a dark outline, four recessed panes in the top half and two raised panels below.
+const doorCache = new Map();
+export function doorCanvas(plankName) {
+  if (doorCache.has(plankName)) return doorCache.get(plankName);
+  const canvas = document.createElement('canvas');
+  canvas.width = N;
+  canvas.height = N * 2;
+  const ctx = canvas.getContext('2d');
+  const base = textureCanvas(plankName);
+  ctx.drawImage(base, 0, 0);
+  ctx.drawImage(base, 0, N);
+  const shade = (x, y, w, h, a) => {
+    ctx.fillStyle = `rgba(0,0,0,${a})`;
+    ctx.fillRect(x, y, w, h);
+  };
+  const light = (x, y, w, h, a) => {
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.fillRect(x, y, w, h);
+  };
+  // outline, with a lighter inner lip so the frame reads as raised
+  shade(0, 0, N, 1, 0.45);
+  shade(0, N * 2 - 1, N, 1, 0.45);
+  shade(0, 0, 1, N * 2, 0.45);
+  shade(N - 1, 0, 1, N * 2, 0.45);
+  light(1, 1, N - 2, 1, 0.14);
+  light(1, 1, 1, N * 2 - 2, 0.1);
+  // top half: four recessed panes (2 x 2)
+  for (const y of [3, 9]) {
+    for (const x of [3, 9]) {
+      shade(x, y, 4, 4, 0.5);
+      light(x, y + 4, 4, 1, 0.16);
+      light(x + 4, y, 1, 5, 0.16);
+    }
+  }
+  // bottom half: two raised panels, one above the other
+  for (const y of [N + 2, N + 9]) {
+    light(3, y, 10, 1, 0.2);
+    light(3, y, 1, 5, 0.2);
+    shade(3, y + 5, 10, 1, 0.35);
+    shade(12, y, 1, 6, 0.35);
+    shade(4, y + 1, 8, 4, 0.12);
+  }
+  doorCache.set(plankName, canvas);
+  return canvas;
+}
+
 export function topTextureName(block) {
   return typeof block.tex === 'string' ? block.tex : block.tex.top;
 }

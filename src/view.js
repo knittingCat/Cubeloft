@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
-import { textureCanvas } from './textures.js';
+import { textureCanvas, doorCanvas } from './textures.js';
 import { DOOR_THICKNESS } from './world.js';
 
 const SKIES = {
@@ -815,22 +815,39 @@ export class DioramaView {
   // ----- doors -----
   // Two stacked 1 x 1 x 3/16 planks (so the plank texture is not stretched) plus a handle. Built around the
   // lower cell's centre; closed = on the `rot` edge, open = swung back onto the left (hinge) edge.
+  // Materials for a door box: plain planks on the thin edges, the Minecraft-style door face on both big sides.
+  doorMaterials(wood) {
+    this.doorMats ??= new Map();
+    if (!this.doorMats.has(wood)) {
+      const tex = BLOCK_BY_ID.get(wood)?.tex || 'planks';
+      const plank = typeof tex === 'string' ? tex : tex.side;
+      const key = `door:${plank}`;
+      if (!this.textures.has(key)) {
+        const t = new THREE.CanvasTexture(doorCanvas(plank));
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.magFilter = THREE.NearestFilter;
+        t.minFilter = THREE.NearestFilter;
+        this.textures.set(key, t);
+      }
+      const edge = new THREE.MeshLambertMaterial({ map: this.texture(plank) });
+      const face = new THREE.MeshLambertMaterial({ map: this.textures.get(key) });
+      this.doorMats.set(wood, [edge, edge, edge, edge, face, face]);
+    }
+    return this.doorMats.get(wood);
+  }
+
   buildDoor(d) {
     const T = DOOR_THICKNESS;
     const g = new THREE.Group();
-    const tex = BLOCK_BY_ID.get(d.wood)?.tex || 'planks';
-    const mat = new THREE.MeshLambertMaterial({ map: this.texture(typeof tex === 'string' ? tex : tex.side) });
-    const handleMat = this.mat('#2b2118');
     const panel = new THREE.Group();
-    for (const y of [0.5, 1.5]) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, T), mat);
-      m.position.y = y;
-      m.castShadow = m.receiveShadow = true;
-      panel.add(m);
-    }
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, T + 0.08), handleMat);
-    handle.position.set(0.36, 1, 0);
-    panel.add(handle);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(1, 2, T), this.doorMaterials(d.wood)); // +x -x +y -y +z -z
+    slab.position.y = 1;
+    slab.castShadow = slab.receiveShadow = true;
+    panel.add(slab);
+    // the knob, on both faces, near the free edge at about hand height
+    const knob = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, T + 0.1), this.mat('#3a2a18'));
+    knob.position.set(0.36, 0.95, 0);
+    panel.add(knob);
     if (d.open) {
       panel.rotation.y = -Math.PI / 2;
       panel.position.set(-0.5 + T / 2, 0, 0);
