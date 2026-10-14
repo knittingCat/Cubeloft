@@ -241,7 +241,7 @@ function updateStatus() {
   let hint = tool === 'box' ? (boxA ? ' — click the opposite corner' : ' — click a first corner') : '';
   if (tool === 'select') hint = selA ? ' — click the opposite corner' : selection ? ' — copied — press Paste' : ' — click one corner of the area';
   if (tool === 'person') hint = ' — click to put a person here, or click one to change their outfit';
-  if (tool === 'door') hint = ' — click to place a door (it takes the planks colour you have selected), click one to open or close it, R turns it';
+  if (tool === 'door') hint = ' — click to place a door (it takes the planks colour you have selected), click one to open or close it, R turns it, Shift+R flips it to the other side';
   if (tool === 'paste') hint = clip ? ` — ${clip.w}×${clip.h}×${clip.d} footprint: move it, then click to place` : '';
   $('#status').textContent = `${world.count()} blocks · ${names[tool]}${hint} · ${BLOCK_BY_ID.get(selected).name}${symmetry !== 'off' ? ' · symmetry: ' + SYMMETRY_NAMES[symmetry] : ''}${saveSuffix() ? ' · ' + saveSuffix() : ''}`;
   $('#undo').disabled = !world.undoStack.length;
@@ -758,11 +758,11 @@ function placeAtPointer(e) {
   refreshHover();
 }
 
-// R with the Door tool: turn the door under the pointer a quarter turn.
-function turnDoorAtPointer() {
-  if (!hoverInfo || isViewOnly() || view.looking) return;
+// R: turn the door under the pointer a quarter turn; Shift+R: flip it to the opposite edge of its block.
+function turnDoorAtPointer(quarters = 1) {
+  if (!hoverInfo || isViewOnly() || view.looking || ['box', 'select', 'paste'].includes(tool)) return;
   const id = view.doorAt(currentHit(hoverInfo).ray);
-  if (id != null) world.changeDoor(id, { rot: world.getDoor(id).rot + 1 });
+  if (id != null) world.changeDoor(id, { rot: world.getDoor(id).rot + quarters });
 }
 
 function copySelection(prefix = '') {
@@ -1142,7 +1142,7 @@ function wireUI() {
     else if (key === 'v') clip ? setTool('paste') : toast('Nothing to paste yet — use Select on an area first.');
     else if (key === 'h') setTool('person');
     else if (key === 'd') setTool('door');
-    else if (key === 'r' && tool === 'door') turnDoorAtPointer();
+    else if (key === 'r') turnDoorAtPointer(e.shiftKey ? 2 : 1);
     else if (key === 'q') rotateClip();
     else if (key === 'm') mirrorClip();
     else if (key === 'y') cycleSymmetry();
