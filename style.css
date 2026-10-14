@@ -162,7 +162,8 @@ button.danger:hover { background: var(--danger); border-color: var(--danger); co
 #panelBody select, #panelBody textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .5rem .6rem; color: var(--text); width: 100%; font: inherit; }
 #panelBody textarea { resize: vertical; }
 
-/* Fly mode needs arrow keys; hide it on phones and tablets (touch-only devices). */
-@media (hover: none) and (pointer: coarse) {
+/* Fly mode needs arrow keys; hide it only on touch-only devices (phones, tablets). "any-" looks at every input
+   device, so a touchscreen laptop (touch plus a trackpad or mouse) keeps it. */
+@media (any-hover: none) and (any-pointer: coarse) {
   #flyBtn, #flyBar { display: none !important; }
 }
