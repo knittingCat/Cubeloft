@@ -52,6 +52,10 @@ export class DioramaView {
       const base = this.zoomGoal ?? d;
       this.zoomGoal = Math.max(this.controls.minDistance, Math.min(this.controls.maxDistance, base * Math.pow(0.95, -step * 0.01)));
     }, { passive: false, capture: true });
+    // A pinch on a touchscreen or precision touchpad arrives as Ctrl + wheel; left alone it zooms the browser page
+    // instead of the diorama, so the page itself never zooms (Ctrl +/- on the keyboard still works).
+    window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+    for (const name of ['gesturestart', 'gesturechange']) document.addEventListener(name, (e) => e.preventDefault()); // Safari
     this.controls.addEventListener('start', () => { this.zoomGoal = null; }); // touch/mouse drags and pinches take over from a wheel ease
     this.controls.maxPolarAngle = Math.PI / 2 - 0.03;
     this.controls.autoRotateSpeed = 1.6;
