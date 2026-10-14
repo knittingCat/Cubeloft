@@ -514,10 +514,15 @@ function otherCells(cell) {
 function refreshHover(e) {
   if (e) hoverInfo = e;
   if (!hoverInfo || !view || isViewOnly() || view.looking) return;
-  const { hit } = currentHit(hoverInfo);
+  const { ray, hit } = currentHit(hoverInfo);
   const erasing = tool === 'erase' || hoverInfo.shiftKey;
   const block = BLOCK_BY_ID.get(selected);
   view.showMirrorGhosts([]);
+  // pointing at a door (clicking it opens, turns or removes it): no block footprint
+  if (!['box', 'select', 'paste'].includes(tool) && view.doorAt(ray) != null) {
+    view.showGhost(null);
+    return;
+  }
   if (tool === 'paste') {
     view.showGhost(null);
     if (!hit || !clip || !hit.prev) return view.showFootprint(null);
