@@ -478,4 +478,28 @@ await test('doors: placement rules, open/colour changes, undo/redo, save round t
   assert.equal(w.doors.length, 2);
 });
 
+await test('animation: steps are cleaned, saved with the scene, and the ledge pose is accepted', async () => {
+  const w = new World(12);
+  const a = w.addPerson({ x: 2, y: 0, z: 2, pose: 'ledge' }, { record: false });
+  const d = w.addDoor({ x: 5, y: 0, z: 5 }, { record: false });
+  assert.equal(a.pose, 'ledge');
+  w.setAnimation([
+    { type: 'walk', person: a.id, x: 6, y: 0, z: 2 },
+    { type: 'door', door: d.id, open: true, together: true },
+    { type: 'wait', seconds: 500 }, // too long: capped
+    { type: 'walk', person: 'x', x: 1, y: 0, z: 1 }, // invalid: dropped
+    { type: 'dance' }, // unknown: dropped
+    { type: 'door', door: d.id, open: 'yes', together: true }, // open must be true to count as open
+  ]);
+  assert.equal(w.animation.length, 4);
+  assert.equal(w.animation[1].together, true);
+  assert.equal(w.animation[2].seconds, 60);
+  assert.equal(w.animation[3].open, false);
+  const back = await decodeWorld(await encodeWorld(w));
+  assert.deepEqual(back.animation, w.animation);
+  w.setAnimation([]);
+  assert.equal(w.animation.length, 0);
+  assert.equal('animation' in w.meta, false);
+});
+
 console.log(`${n} tests passed`);

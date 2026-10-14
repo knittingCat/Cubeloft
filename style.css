@@ -127,7 +127,16 @@ body.viewonly #stage canvas { cursor: grab; }
 #lookBar[hidden] { display: none; }
 #flyBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; align-items: center; gap: .6rem; background: rgba(18,21,31,.92); border: 1px solid #60a5fa; border-radius: 12px; padding: .4rem .7rem; z-index: 6; font-size: .9rem; max-width: 94vw; flex-wrap: wrap; justify-content: center; }
 #flyBar[hidden] { display: none; }
-
+#animBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: stretch; gap: .4rem; background: rgba(18,21,31,.94); border: 1px solid #f59e0b; border-radius: 12px; padding: .5rem .7rem; z-index: 6; font-size: .9rem; width: min(94vw, 44rem); }
+#animBar[hidden] { display: none; }
+#animBar .animRow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; }
+#animBar .animTogether { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); }
+#animBar button[hidden] { display: none; }
+#animHint { text-align: center; color: #fbbf24; min-height: 1.2em; }
+#animSteps { margin: 0; padding: 0 0 0 1.4rem; max-height: 9rem; overflow-y: auto; color: var(--muted); }
+#animSteps li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .1rem 0; }
+#animSteps li.together { margin-left: 1rem; list-style-type: circle; }
+#animSteps button { padding: 0 .4rem; line-height: 1.3; }
 #reportsBtn { position: relative; }
 #reportsBtn .count { position: absolute; top: -6px; left: -6px; width: 1.15rem; height: 1.15rem; padding: 0; min-width: 0; line-height: 1.15rem; font-weight: 700; box-shadow: 0 0 0 2px #1a1d2b; }
 

@@ -5,7 +5,7 @@ export const HEIGHT = 32;
 
 // ---- people (decorative figures with a customizable outfit; not part of the block grid) ----
 export const PERSON_CHOICES = {
-  pose: ['standing', 'sitting', 'lying', 'lyingFront'], // sitting = on the floor of the cell, legs forward; lying = on their back, lyingFront = on their front
+  pose: ['standing', 'sitting', 'ledge', 'lying', 'lyingFront'], // sitting = on the floor of the cell, legs forward; ledge = sitting on the block below with the legs hanging over its front edge; lying = on their back, lyingFront = on their front
   hairStyle: ['none', 'short', 'long'],
   sleeves: ['short', 'long', 'none'],
   bottoms: ['pants', 'shorts', 'skirt'],
@@ -59,6 +59,32 @@ export function cleanDoor(d) {
   out.x = Number(d.x);
   out.y = Number(d.y);
   out.z = Number(d.z);
+  return out;
+}
+// ---- animation: a short list of steps played one after another (or together with the one before) ----
+//   { type: 'walk', person: id, x, y, z }   the person walks to that cell
+//   { type: 'door', door: id, open: bool }  the door swings open or shut
+//   { type: 'wait', seconds }               a pause
+// Each step may have `together: true` to start at the same moment as the step before it. Stored in meta.animation.
+export const MAX_ANIMATION_STEPS = 200;
+export function cleanAnimation(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const s of list.slice(0, MAX_ANIMATION_STEPS)) {
+    if (!s || typeof s !== 'object') continue;
+    const step = { type: s.type };
+    if (s.type === 'walk') {
+      if (!Number.isInteger(s.person) || ![s.x, s.y, s.z].every(Number.isInteger)) continue;
+      Object.assign(step, { person: s.person, x: s.x, y: s.y, z: s.z });
+    } else if (s.type === 'door') {
+      if (!Number.isInteger(s.door)) continue;
+      Object.assign(step, { door: s.door, open: s.open === true });
+    } else if (s.type === 'wait') {
+      step.seconds = Math.max(0.1, Math.min(60, Number(s.seconds) || 1));
+    } else continue;
+    if (s.together === true && out.length) step.together = true;
+    out.push(step);
+  }
   return out;
 }
 export const SIZES = { small: 24, medium: 32, large: 48 };
@@ -467,6 +493,17 @@ export class World {
     return d;
   }
 
+  // ----- animation (not part of undo; edited with its own Remove / Clear buttons) -----
+  get animation() {
+    return this.meta.animation || [];
+  }
+  setAnimation(list) {
+    const clean = cleanAnimation(list);
+    if (clean.length) this.meta.animation = clean;
+    else delete this.meta.animation;
+    this.emit({ type: 'animation' });
+  }
+
   // ----- history -----
   undo() {
     const step = this.undoStack.pop();
@@ -664,6 +701,8 @@ export class World {
     for (const p of json.people || []) world.addPerson({ ...p }, { record: false, id: Number.isInteger(p.id) ? p.id : undefined });
     for (const d of json.doors || []) world.addDoor({ ...d }, { record: false, id: Number.isInteger(d.id) ? d.id : undefined });
     Object.assign(world.meta, json.meta || {});
+    if (world.meta.animation) world.meta.animation = cleanAnimation(world.meta.animation);
+    if (!world.meta.animation?.length) delete world.meta.animation;
     return world;
   }
 }

@@ -11,7 +11,7 @@ Live site: https://cubeloft.onrender.com
 **Build**
 - 35 blocks with pixel-art textures: grass, dirt, stone, cobblestone, sand, snow, ice, water, lava, wood, bricks, glass, glowstone, gold, obsidian, coloured wool and rainbow-coloured planks (red to violet) beside the natural planks.
 - Stage size: Small, Medium or Large, or Custom with your own width and depth in blocks (12 to 96, or keep it square).
-- Tools: Build, Erase, Box (fill an area), Select, Pick (copy a block's type), Sign (floating text), Person, Door (1 wide, 2 tall, in any planks colour; click to open and close).
+- Tools: Build, Erase, Box (fill an area), Select, Pick (copy a block's type), Sign (floating text), Person, Door (1 wide, 2 tall, in any planks colour; click to open and close), Animate (people walk, doors swing, then play it back; saved with the diorama). People can sit on the floor or on a block with their legs hanging down.
 - Copy and paste whole structures, with rotate and mirror. Build symmetrically across the left-right or front-back middle line.
 - Undo and redo for everything, including Clear, which removes only what you added and leaves the scene you started with.
 - Water and lava flow: sources fall through empty space and spread across surfaces, seeking nearby drops, and drain away when the source is removed. Flowing lava that meets water cools to cobblestone. The flow is worked out from the source blocks, so only the sources are saved.

@@ -24,6 +24,7 @@
       <button aria-label="Copy" id="copyBtn" title="Copy the selected area again (C or Cmd/Ctrl+C) — selecting already copies it"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
       <button aria-label="Paste" data-tool="paste" title="Paste: choose the footprint, then click to place it (V or Cmd/Ctrl+V)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg></button>
       <button aria-label="Mirror" id="mirrorBtn" title="Mirror the copied structure left-to-right (M)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"/><path d="M12 20v2"/><path d="M12 14v2"/><path d="M12 8v2"/><path d="M12 2v2"/></svg></button>
+      <button aria-label="Animate" id="animBtn" title="Animate: make people walk and doors open, then play it back (A)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg></button>
       <button aria-label="Fly" id="flyBtn" title="Fly around in first person (F): arrows fly and turn, Shift + arrows slide and rise; you can still build"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button aria-label="Symmetry" id="symBtn" title="Build symmetrically: click to cycle off, left-right, front-back, both (Y)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20" stroke-dasharray="3 3"/><rect x="3" y="6" width="6" height="12" rx="1"/><rect x="15" y="6" width="6" height="12" rx="1"/></svg></button>
     </div>
@@ -67,6 +68,20 @@
     <span>Arrows: walk. Shift + left/right: spin around. Shift + up: lie face down (or get up). Shift + down: lie on your back (or get up). Drag: turn your head. Head straight: match the head to the body. Esc: finish.</span>
     <button id="lookMatch" type="button">Head straight</button>
     <button id="lookDone" type="button" class="primary">Done</button>
+  </div>
+  <div id="animBar" hidden>
+    <div class="animRow">
+      <button type="button" id="animWalk">Walk</button>
+      <button type="button" id="animDoor">Door</button>
+      <button type="button" id="animWait">Wait 1s</button>
+      <label class="animTogether"><input type="checkbox" id="animTogether"> Same time as the step before</label>
+      <button type="button" id="animPlay" class="primary">Play</button>
+      <button type="button" id="animStop" hidden>Stop</button>
+      <button type="button" id="animClear">Clear</button>
+      <button type="button" id="animDone">Done</button>
+    </div>
+    <div id="animHint"></div>
+    <ol id="animSteps"></ol>
   </div>
   <div id="flyBar" hidden>
     <span>Fly: up/down arrows go forward/back, left/right turn. Shift + left/right slide, Shift + up/down rise/sink. Drag to look. You can still build. Esc or F: stop.</span>
@@ -142,6 +157,7 @@
         <li><b>Build symmetrically:</b> click the Symmetry icon (or press Y) to cycle off, left-right, front-back and both. Everything you place, remove or fill is repeated on the other side of the blue line.</li>
         <li><b>Fly (point of view):</b> only on devices with a keyboard. The eye button (or F) lets you fly around: up/down arrows go forward and back, left/right arrows turn, Shift + left/right slide sideways, Shift + up/down rise and sink, dragging looks around. Building works the same while you fly. Esc or F stops.</li>
         <li><b>Doors:</b> the Door tool (or D) puts a door, one block wide and two tall like Minecraft's, where you click. Select any planks colour first to colour it; click a door to open or close it, with any tool except Erase, Box and Select (with the Door tool and a different planks colour selected, a click repaints it instead), press R over it to turn it a quarter turn or Shift+R to flip it to the other side of its block, and use Erase to remove it.</li>
+        <li><b>Animate:</b> the film button (or A) opens the Animate bar. Choose Walk, click a person, then click where they should walk to; or choose Door and click a door to open or close it. Steps play one after another (tick the box to start a step at the same time as the one before). Press Play to watch: people turn, walk with swinging arms and legs, and doors swing. Stop, or Done, puts everything back where it was. Steps are saved with the diorama. People walk in a straight line and do not go around blocks.</li>
         <li><b>People:</b> the Person tool (or H) puts a figure where you click and opens a window to change their hair, hat, shirt, pants, shoes and name. Click a person in any tool to change them later (Move picks them up and puts them somewhere else; Look through their eyes: arrows walk, Shift + left/right spins them around, Shift + up lies them face down or gets them up, Shift + down lies them on their back or gets them up, dragging turns the head, Head straight matches the head to the body, Esc finishes). Right-click removes one.</li>
         <li><b>Classes:</b> in the Gallery you can join a class with the code from your teacher, or start your own class and give out its code. When you Save, choose "In a class gallery" to share with just that class.</li>
         <li><b>Name things:</b> Sign puts floating text in your scene.</li>

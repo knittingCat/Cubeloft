@@ -1,4 +1,4 @@
-import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS } from './world.js';
+import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS, MAX_ANIMATION_STEPS } from './world.js';
 import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
 import { textureCanvas, topTextureName } from './textures.js';
 import { DioramaView } from './view.js';
@@ -318,6 +318,7 @@ async function doCloudSave() {
 function attachWorld(w) {
   world = w;
   world.onChange((e) => {
+    if (e && (e.type === 'animation' || e.type === 'people' || e.type === 'doors')) renderAnimSteps();
     updateStatus();
     scheduleSave(!!(e && e.remote));
     live.send(e);
@@ -385,7 +386,7 @@ const SHIRTS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6'
 const PANTS = ['#1f2937', '#374151', '#1e3a8a', '#7c2d12', '#3f6212', '#581c87', '#475569'];
 const HAIRS = ['#1c1917', '#3b2a1a', '#7c4a1e', '#c27a2c', '#e5c07b', '#b91c1c', '#9ca3af'];
 const CHOICE_LABELS = {
-  standing: 'Standing', sitting: 'Sitting', lying: 'Lying on back', lyingFront: 'Lying on front', none: 'None', short: 'Short', long: 'Long', pants: 'Pants', shorts: 'Shorts', skirt: 'Skirt',
+  standing: 'Standing', sitting: 'Sitting', ledge: 'Sitting on a block (legs hanging)', lying: 'Lying on back', lyingFront: 'Lying on front', none: 'None', short: 'Short', long: 'Long', pants: 'Pants', shorts: 'Shorts', skirt: 'Skirt',
   cap: 'Cap', beanie: 'Beanie', tophat: 'Top hat', crown: 'Crown',
 };
 const CHOICE_TITLES = { hairStyle: 'Hair', sleeves: 'Sleeves', bottoms: 'Bottoms', hat: 'Hat' };
@@ -518,6 +519,12 @@ function refreshHover(e) {
   const erasing = tool === 'erase' || hoverInfo.shiftKey;
   const block = BLOCK_BY_ID.get(selected);
   view.showMirrorGhosts([]);
+  if (animOpen()) {
+    // no building while animating; show the destination a walking person would go to
+    if (animMode === 'walkDest' && hit?.prev && !view.animating) view.showGhost(hit.prev, { color: 0xfbbf24, opacity: 0.3 });
+    else view.showGhost(null);
+    return;
+  }
   // pointing at a door (clicking it opens, turns or removes it): no block footprint
   if (!['box', 'select', 'paste'].includes(tool) && view.doorAt(ray) != null) {
     view.showGhost(null);
@@ -584,6 +591,118 @@ function toggleFly() {
   refreshHover();
 }
 
+// ---------- animation: people walk, doors swing, then play it back ----------
+let animMode = null; // null, or what the next click does: 'walkPerson' (pick who), 'walkDest' (pick where), 'door'
+let animPerson = null; // the person waiting for a destination
+const animOpen = () => !$('#animBar').hidden;
+
+function personLabel(id) {
+  const p = world.getPerson(id);
+  return p ? p.name || `Person ${id}` : 'someone who is gone';
+}
+
+function stepText(s) {
+  if (s.type === 'walk') return `${personLabel(s.person)} walks to ${s.x}, ${s.z}`;
+  if (s.type === 'door') {
+    const d = world.getDoor(s.door);
+    return d ? `Door at ${d.x}, ${d.z} ${s.open ? 'opens' : 'closes'}` : 'A door that is gone';
+  }
+  return `Wait ${s.seconds} second${s.seconds === 1 ? '' : 's'}`;
+}
+
+function renderAnimSteps() {
+  const list = $('#animSteps');
+  if (!list || !world) return;
+  list.replaceChildren(
+    ...world.animation.map((s, i) => {
+      const li = document.createElement('li');
+      if (s.together) li.className = 'together';
+      const text = document.createElement('span');
+      text.textContent = stepText(s);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = '×';
+      del.title = 'Remove this step';
+      del.setAttribute('aria-label', 'Remove this step');
+      del.onclick = () => {
+        if (!view.animating) world.setAnimation(world.animation.filter((_, k) => k !== i));
+      };
+      li.append(text, del);
+      return li;
+    }),
+  );
+}
+
+function setAnimMode(mode, hint = '') {
+  animMode = mode;
+  $('#animHint').textContent = hint;
+}
+
+function toggleAnimBar(show = !animOpen()) {
+  if (show && (view.looking || view.flying)) return toast('Finish looking through the person or flying first.');
+  if (!show) {
+    view.stopAnimation(false);
+    setAnimMode(null);
+  }
+  $('#animBar').hidden = !show;
+  $('#animBtn').classList.toggle('active', show);
+  if (show) {
+    setTool('build');
+    renderAnimSteps();
+    setAnimMode(null, world.animation.length ? '' : 'Pick Walk or Door, then click what should move. Steps play one after another.');
+  }
+  refreshHover();
+}
+
+function addAnimStep(step) {
+  const steps = world.animation.slice();
+  if (steps.length >= MAX_ANIMATION_STEPS) return toast(`That is the most steps (${MAX_ANIMATION_STEPS}). Remove some first.`);
+  if ($('#animTogether').checked && steps.length) step.together = true;
+  steps.push(step);
+  world.setAnimation(steps);
+}
+
+// Is the door open once every step so far has played? (so a new Door step flips it to the other state)
+function doorOpenAfterSteps(id) {
+  let open = world.getDoor(id)?.open === true;
+  for (const s of world.animation) if (s.type === 'door' && s.door === id) open = s.open;
+  return open;
+}
+
+function animClick(e, button) {
+  if (view.animating) return;
+  const { ray, hit } = currentHit(e);
+  if (button === 2 || e.button === 2) return setAnimMode(null, animMode ? 'Cancelled.' : '');
+  if (animMode === 'walkPerson') {
+    const id = view.personAt(ray) ?? personAtCells(hit);
+    if (id == null) return toast('Click a person.');
+    animPerson = id;
+    setAnimMode('walkDest', `Click where ${personLabel(id)} should walk to (right-click to cancel).`);
+  } else if (animMode === 'walkDest') {
+    if (!hit || !hit.prev || !world.getPerson(animPerson)) return;
+    addAnimStep({ type: 'walk', person: animPerson, x: hit.prev[0], y: hit.prev[1], z: hit.prev[2] });
+    setAnimMode(null, 'Added. Press Play to watch, or add more steps.');
+  } else if (animMode === 'door') {
+    const id = view.doorAt(ray);
+    if (id == null) return toast('Click a door.');
+    addAnimStep({ type: 'door', door: id, open: !doorOpenAfterSteps(id) });
+    setAnimMode(null, 'Added. Press Play to watch, or add more steps.');
+  }
+}
+
+function playAnimation() {
+  if (!world.animation.length) return toast('Add some steps first: Walk or Door.');
+  const started = view.playAnimation(world.animation, () => {
+    $('#animPlay').hidden = false;
+    $('#animStop').hidden = true;
+    setAnimMode(null, '');
+  });
+  if (!started) return toast('Nothing to play: the people or doors in the steps are gone.');
+  setAnimMode(null, 'Playing…');
+  $('#animPlay').hidden = true;
+  $('#animStop').hidden = false;
+}
+
 function stopLooking() {
   const r = view.exitPerson();
   $('#lookBar').hidden = true;
@@ -610,6 +729,7 @@ function personAtCells(hit) {
 
 async function actAt(e, button) {
   if (isViewOnly() || view.looking) return;
+  if (animOpen()) return animClick(e, button); // while the Animate bar is open, clicks choose animation steps, not blocks
   const { ray, hit } = currentHit(e);
   if (movingPerson != null) {
     const id = movingPerson;
@@ -1100,6 +1220,17 @@ function wireUI() {
   });
 
   $('#lookDone').onclick = stopLooking;
+  $('#animBtn').onclick = () => toggleAnimBar();
+  $('#animDone').onclick = () => toggleAnimBar(false);
+  $('#animWalk').onclick = () => !view.animating && setAnimMode('walkPerson', 'Click the person who should walk.');
+  $('#animDoor').onclick = () => !view.animating && setAnimMode('door', 'Click the door to open or close.');
+  $('#animWait').onclick = () => !view.animating && addAnimStep({ type: 'wait', seconds: 1 });
+  $('#animPlay').onclick = playAnimation;
+  $('#animStop').onclick = () => view.stopAnimation(false);
+  $('#animClear').onclick = () => {
+    if (view.animating || !world.animation.length) return;
+    if (confirm('Remove every animation step?')) world.setAnimation([]);
+  };
   $('#flyBtn').onclick = toggleFly;
   $('#flyDone').onclick = toggleFly;
   view.onFlyMove = () => refreshHover();
@@ -1111,6 +1242,8 @@ function wireUI() {
     }
     if (e.target.closest?.('input, textarea, select') || document.querySelector('dialog[open]')) return;
     if (view.flying && e.key === 'Escape') return toggleFly();
+    if (animOpen() && e.key === 'Escape') return animMode ? setAnimMode(null, 'Cancelled.') : toggleAnimBar(false);
+    if (e.key.toLowerCase() === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey && !isViewOnly()) return toggleAnimBar();
     if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) return toggleFly();
     if (isViewOnly()) return;
     const mod = e.metaKey || e.ctrlKey;

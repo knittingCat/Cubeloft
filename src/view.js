@@ -4,6 +4,14 @@ import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
 import { textureCanvas, doorCanvas } from './textures.js';
 import { DOOR_THICKNESS } from './world.js';
 
+const DOOR_OPEN_ANGLE = -Math.PI / 2; // hinge turn of a fully open door
+const WALK_SPEED = 1.4; // cells per second (about a person's walking pace: the figure is ~1.5 cells tall)
+const STRIDE = 1.5; // cells covered by one full leg cycle (two steps)
+const TURN_TIME = 0.3; // seconds spent turning on the spot before walking off
+const DOOR_TIME = 0.7; // seconds for a door to swing open or shut
+const smooth = (u) => u * u * (3 - 2 * u);
+const angleDiff = (a, b) => ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI; // shortest signed turn from a to b
+
 const SKIES = {
   day: { top: '#5aa9ee', bottom: '#cfeaff', hemiSky: 0xdbeeff, hemiGround: 0x8a7a62, hemi: 2.6, sun: 0xfff2d6, sunI: 3.4, sunPos: [0.8, 1.2, 0.55], stars: false },
   sunset: { top: '#4a5aa8', bottom: '#ffae72', hemiSky: 0xffcfa6, hemiGround: 0x5b4060, hemi: 2.0, sun: 0xffa760, sunI: 3.0, sunPos: [1.5, 0.5, 0.35], stars: false },
@@ -672,18 +680,34 @@ export class DioramaView {
     };
     // legs and shoes
     const sitting = p.pose === 'sitting';
+    const ledge = p.pose === 'ledge';
+    const legs = [];
+    const arms = [];
     for (const sx of [-0.13, 0.13]) {
-      let leg = g;
-      let x = sx;
-      if (sitting) {
-        // the legs swing forward from the hip, so they stick out along the front of the figure
-        leg = new THREE.Group();
-        leg.position.set(sx, 0.7, 0);
+      // each leg hangs from a pivot at the hip, so it can swing (walking) or point forward (sitting)
+      const leg = new THREE.Group();
+      leg.position.set(sx, 0.7, 0);
+      if (sitting) leg.rotation.x = -Math.PI / 2; // the legs stick out along the front of the figure
+      g.add(leg);
+      legs.push(leg);
+      part = leg;
+      lower = 0.7;
+      const x = 0;
+      if (ledge) {
+        // sitting on a block: the thigh points forward from the hip, the lower leg hangs straight down from the knee
         leg.rotation.x = -Math.PI / 2;
-        g.add(leg);
-        part = leg;
-        lower = 0.7;
-        x = 0;
+        add(0.24, 0.4, 0.28, x, 0.3, 0, p.bottoms === 'skirt' ? p.skin : p.pants);
+        const shin = new THREE.Group();
+        shin.position.set(0, -0.4, 0); // the knee: the thigh's far end, in the leg's own frame
+        shin.rotation.x = Math.PI / 2; // cancels the thigh's turn, so it hangs down
+        leg.add(shin);
+        part = shin;
+        lower = 0.3;
+        add(0.24, 0.4, 0.28, x, -0.1, 0, p.bottoms === 'pants' ? p.pants : p.skin);
+        add(0.26, 0.1, 0.36, x, -0.1, 0.04, p.shoes);
+        part = g;
+        lower = 0;
+        continue;
       }
       if (p.bottoms === 'pants') add(0.24, 0.7, 0.28, x, 0, 0, p.pants);
       else if (p.bottoms === 'shorts') {
@@ -694,18 +718,30 @@ export class DioramaView {
         part = g;
         lower = 0;
         add(0.26, 0.28, 0.12, sx, 0.56, 0.7, p.shoes); // the feet at the end of the legs
-      } else add(0.26, 0.1, 0.36, sx, 0, 0.04, p.shoes);
+      } else add(0.26, 0.1, 0.36, 0, 0, 0.04, p.shoes); // the shoe swings with the leg
     }
+    part = g;
+    lower = 0;
     if (p.bottoms === 'skirt') add(0.62, 0.34, 0.36, 0, 0.5, 0, p.pants);
     // torso and arms
     add(0.52, 0.7, 0.3, 0, 0.7, 0, p.shirt);
     for (const sx of [-0.36, 0.36]) {
-      if (p.sleeves === 'long') add(0.2, 0.7, 0.26, sx, 0.7, 0, p.shirt);
+      // each arm hangs from a pivot at the shoulder so it can swing when walking
+      const arm = new THREE.Group();
+      arm.position.set(sx, 1.35, 0);
+      g.add(arm);
+      arms.push(arm);
+      part = arm;
+      lower = 1.35;
+      if (p.sleeves === 'long') add(0.2, 0.7, 0.26, 0, 0.7, 0, p.shirt);
       else if (p.sleeves === 'short') {
-        add(0.2, 0.3, 0.26, sx, 1.1, 0, p.shirt);
-        add(0.2, 0.4, 0.26, sx, 0.7, 0, p.skin);
-      } else add(0.2, 0.7, 0.26, sx, 0.7, 0, p.skin);
+        add(0.2, 0.3, 0.26, 0, 1.1, 0, p.shirt);
+        add(0.2, 0.4, 0.26, 0, 0.7, 0, p.skin);
+      } else add(0.2, 0.7, 0.26, 0, 0.7, 0, p.skin);
     }
+    part = g;
+    lower = 0;
+    g.userData.limbs = { legs, arms }; // swung by the walking animation
     // everything from here up turns and tilts together, around the neck
     const head = new THREE.Group();
     head.position.set(0, 1.4, 0);
@@ -745,7 +781,13 @@ export class DioramaView {
     g.rotation.order = 'YXZ'; // lie down first, then turn around the vertical
     g.rotation.y = ((p.rot * 3 + p.twist) * Math.PI) / 6; // rot is quarter turns, twist is 30 degree steps
     const lying = p.pose === 'lying' || p.pose === 'lyingFront';
-    if (sitting) g.position.y = -0.5; // the seat of the figure rests on the floor
+    if (sitting || ledge) g.position.y = -0.5; // the seat of the figure rests on the floor
+    if (ledge) {
+      // sit near the front edge of the block so the knees are past it and the lower legs hang free
+      const a = g.rotation.y;
+      g.position.x = Math.sin(a) * 0.2;
+      g.position.z = Math.cos(a) * 0.2;
+    }
     if (lying) {
       // on their back (face up) or on their front (face down); head toward the back of the cell
       g.rotation.x = p.pose === 'lyingFront' ? Math.PI / 2 : -Math.PI / 2;
@@ -760,7 +802,7 @@ export class DioramaView {
       if (lying) {
         const a = ((p.rot * 3 + p.twist) * Math.PI) / 6; // head is at -z of the figure, turned by rot
         tag.position.set(-1.3 * Math.sin(a), 0.9, -1.3 * Math.cos(a));
-      } else tag.position.set(0, sitting ? 1.75 : 2.25, 0);
+      } else tag.position.set(0, sitting || ledge ? 1.75 : 2.25, 0);
       holder.add(tag);
     }
     return holder;
@@ -855,11 +897,15 @@ export class DioramaView {
       knob.castShadow = true;
       panel.add(knob);
     }
-    if (d.open) {
-      panel.rotation.y = -Math.PI / 2;
-      panel.position.set(-0.5 + T / 2, 0, 0);
-    } else panel.position.set(0, 0, -0.5 + T / 2);
-    g.add(panel);
+    // the door swings around a hinge at its left corner; the panel is offset from the hinge so turning the hinge
+    // by -90 degrees lays the open door along the hinge edge, inside the cell
+    const hinge = new THREE.Group();
+    hinge.position.set(-0.5 + T / 2, 0, -0.5 + T / 2);
+    panel.position.set(0.5 - T / 2, 0, 0);
+    hinge.add(panel);
+    hinge.rotation.y = d.open ? DOOR_OPEN_ANGLE : 0;
+    g.add(hinge);
+    g.userData.hinge = hinge;
     g.rotation.y = -d.rot * (Math.PI / 2);
     return g;
   }
@@ -898,6 +944,160 @@ export class DioramaView {
       if (o) return o.userData.doorId;
     }
     return null;
+  }
+
+  // ----- animation playback -----
+  // Turns a list of steps (see cleanAnimation in world.js) into a timeline: for each person a list of walking
+  // segments, for each door a list of swings. Steps run one after another; a step marked `together` starts with
+  // the one before it. Nothing in the world is changed: playback only moves the drawn figures and doors.
+  planAnimation(steps) {
+    const world = this.world;
+    const people = new Map(); // person id -> { start: {x,y,z,facing}, segs: [], at: current planned state }
+    const doors = new Map(); // door id -> { open0, events: [], open: current planned state }
+    let end = 0;
+    let prevStart = 0;
+    let total = 0;
+    for (const s of steps) {
+      const start = s.together ? prevStart : end;
+      let dur = 0;
+      if (s.type === 'walk') {
+        const p = world.getPerson(s.person);
+        if (!p) continue;
+        if (!people.has(p.id)) {
+          const at = { x: p.x + 0.5, y: p.y, z: p.z + 0.5, facing: ((p.rot * 3 + p.twist) * Math.PI) / 6 };
+          people.set(p.id, { start: { ...at }, segs: [], at });
+        }
+        const rec = people.get(p.id);
+        const to = { x: s.x + 0.5, y: s.y, z: s.z + 0.5 };
+        const L = Math.hypot(to.x - rec.at.x, to.z - rec.at.z);
+        if (L < 0.01) continue;
+        const heading = Math.atan2(to.x - rec.at.x, to.z - rec.at.z);
+        const walkT = L / WALK_SPEED + 0.4; // the ends are eased, so a little longer than L / speed
+        dur = TURN_TIME + walkT;
+        rec.segs.push({ t0: start, t1: start + dur, walkT, L, from: { x: rec.at.x, y: rec.at.y, z: rec.at.z }, to, heading, faceFrom: rec.at.facing });
+        rec.at = { ...to, facing: heading };
+      } else if (s.type === 'door') {
+        const d = world.getDoor(s.door);
+        if (!d) continue;
+        if (!doors.has(d.id)) doors.set(d.id, { open0: d.open, events: [], open: d.open });
+        const rec = doors.get(d.id);
+        rec.events.push({ t0: start, t1: start + DOOR_TIME, from: rec.open ? 1 : 0, to: s.open ? 1 : 0 });
+        rec.open = s.open;
+        dur = DOOR_TIME;
+      } else if (s.type === 'wait') dur = s.seconds;
+      prevStart = start;
+      end = Math.max(end, start + dur);
+      total = Math.max(total, start + dur);
+    }
+    return total > 0 ? { people, doors, total } : null;
+  }
+
+  // Pose one person at time t: position, facing, and swinging legs and arms.
+  poseAnimatedPerson(id, rec, t) {
+    const entry = this.personGroups.get(id);
+    const p = this.world.getPerson(id);
+    if (!entry || !p) return;
+    let seg = null;
+    for (const s of rec.segs) if (s.t0 <= t) seg = s;
+    let pos = rec.start;
+    let facing = rec.start.facing;
+    let phase = 0;
+    let amp = 0;
+    if (seg) {
+      const tau = t - seg.t0;
+      if (t >= seg.t1) {
+        pos = seg.to;
+        facing = seg.heading;
+        phase = seg.L / STRIDE; // stand with the legs where the walk ended: reset below
+      } else if (tau < TURN_TIME) {
+        pos = seg.from;
+        facing = seg.faceFrom + angleDiff(seg.faceFrom, seg.heading) * smooth(tau / TURN_TIME);
+      } else {
+        const u = Math.min(1, (tau - TURN_TIME) / seg.walkT);
+        const s = seg.L * smooth(u);
+        const f = s / seg.L;
+        pos = { x: seg.from.x + (seg.to.x - seg.from.x) * f, y: seg.from.y + (seg.to.y - seg.from.y) * f, z: seg.from.z + (seg.to.z - seg.from.z) * f };
+        facing = seg.heading;
+        phase = s / STRIDE;
+        const speed = (seg.L * 6 * u * (1 - u)) / seg.walkT; // cells per second right now
+        amp = Math.min(1, speed / 1.2);
+      }
+    }
+    const holder = entry.group;
+    const g = holder.children[0];
+    const standing = p.pose === 'standing';
+    holder.position.set(pos.x - this.offset, pos.y + (standing ? Math.abs(Math.sin(phase * Math.PI * 2)) * 0.04 * amp : 0), pos.z - this.offsetZ);
+    if (standing) g.rotation.y = facing;
+    const limbs = g.userData.limbs;
+    if (standing && limbs) {
+      const swing = Math.sin(phase * Math.PI * 2) * amp;
+      limbs.legs[0].rotation.x = swing * 0.55;
+      limbs.legs[1].rotation.x = -swing * 0.55;
+      limbs.arms[0].rotation.x = -swing * 0.45; // each arm swings against the leg on its own side
+      limbs.arms[1].rotation.x = swing * 0.45;
+    }
+  }
+
+  poseAnimatedDoor(id, rec, t) {
+    const entry = this.doorGroups.get(id);
+    if (!entry) return;
+    let v = rec.open0 ? 1 : 0;
+    for (const ev of rec.events) {
+      if (t >= ev.t1) v = ev.to;
+      else {
+        if (t > ev.t0) v = ev.from + (ev.to - ev.from) * smooth((t - ev.t0) / DOOR_TIME);
+        break;
+      }
+    }
+    entry.group.userData.hinge.rotation.y = v * DOOR_OPEN_ANGLE;
+  }
+
+  get animating() {
+    return !!this.anim;
+  }
+
+  // Start playing steps; onEnd(finished) is called when it ends or is stopped. Returns false if nothing to play.
+  playAnimation(steps, onEnd) {
+    if (this.anim) this.stopAnimation(false);
+    if (this.looking || this.flying) return false;
+    const plan = this.planAnimation(steps);
+    if (!plan) return false;
+    this.anim = { plan, t0: performance.now(), onEnd };
+    return true;
+  }
+
+  updateAnimation() {
+    const { plan, t0 } = this.anim;
+    const t = (performance.now() - t0) / 1000;
+    for (const [id, rec] of plan.people) this.poseAnimatedPerson(id, rec, t);
+    for (const [id, rec] of plan.doors) this.poseAnimatedDoor(id, rec, t);
+    this.dirty = true;
+    if (t > plan.total + 0.3) this.stopAnimation(true);
+  }
+
+  // Stop and put every figure and door back as the diorama really has them.
+  stopAnimation(finished = false) {
+    if (!this.anim) return;
+    const { plan, onEnd } = this.anim;
+    this.anim = null;
+    for (const id of plan.people.keys()) {
+      const entry = this.personGroups.get(id);
+      if (entry) {
+        this.scene.remove(entry.group);
+        this.disposePerson(entry.group);
+        this.personGroups.delete(id);
+      }
+    }
+    for (const id of plan.doors.keys()) {
+      const entry = this.doorGroups.get(id);
+      if (entry) {
+        this.scene.remove(entry.group);
+        this.doorGroups.delete(id);
+      }
+    }
+    this.rebuildPeople();
+    this.rebuildDoors();
+    if (onEnd) onEnd(finished);
   }
 
   // Which way (0-3) a figure on this cell should face to look toward the camera.
@@ -1018,7 +1218,7 @@ export class DioramaView {
     L.headPitch = Math.max(-0.7, Math.min(0.7, L.headPitch));
     const off = this.offset;
     const offZ = this.offsetZ;
-    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + (lying ? 0.55 : L.pose === 'sitting' ? 0.9 : 1.4), L.z + 0.5 - offZ);
+    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + (lying ? 0.55 : L.pose === 'sitting' || L.pose === 'ledge' ? 0.9 : 1.4), L.z + 0.5 - offZ);
     if (lying) at.add(new THREE.Vector3(-1.1 * Math.sin(a), 0, -1.1 * Math.cos(a))); // head end
     this.camera.position.copy(at);
     const pitch = Math.max(-1.4, Math.min(1.4, (lying ? -1.1 : 0) + L.headPitch));
@@ -1369,6 +1569,7 @@ export class DioramaView {
     t.y = Math.max(0, Math.min(this.world.height, t.y));
     if (this.flowWaiting) this.updateFlowReveal();
     if (this.flying) this.updateFly();
+    if (this.anim) this.updateAnimation();
     let eased = false;
     if (this.zoomGoal != null && !this.looking && !this.flying) {
       const off = this.camera.position.clone().sub(t);
