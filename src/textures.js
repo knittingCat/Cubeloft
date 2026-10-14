@@ -200,7 +200,7 @@ export function textureCanvas(name) {
 }
 
 // A 16x32 door face in the style of Minecraft's wooden door, tinted by a planks texture name ("planks" or
-// "planks:r,g,b"): planks with four recessed panes in the top half and two raised panels below (no outline).
+// "planks:r,g,b"): planks with four see-through window panes in the top half and two raised panels below (no outline).
 const doorCache = new Map();
 export function doorCanvas(plankName) {
   if (doorCache.has(plankName)) return doorCache.get(plankName);
@@ -219,10 +219,10 @@ export function doorCanvas(plankName) {
     ctx.fillStyle = `rgba(255,255,255,${a})`;
     ctx.fillRect(x, y, w, h);
   };
-  // top half: four recessed panes (2 x 2)
+  // top half: four window panes (2 x 2), cut right out of the texture so you can see through them
   for (const y of [3, 9]) {
     for (const x of [3, 9]) {
-      shade(x, y, 4, 4, 0.5);
+      ctx.clearRect(x, y, 4, 4);
       light(x, y + 4, 4, 1, 0.16);
       light(x + 4, y, 1, 5, 0.16);
     }

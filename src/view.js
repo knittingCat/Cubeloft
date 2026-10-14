@@ -830,7 +830,7 @@ export class DioramaView {
         this.textures.set(key, t);
       }
       const edge = new THREE.MeshLambertMaterial({ map: this.texture(plank) });
-      const face = new THREE.MeshLambertMaterial({ map: this.textures.get(key) });
+      const face = new THREE.MeshLambertMaterial({ map: this.textures.get(key), alphaTest: 0.5 }); // cut-out windows
       this.doorMats.set(wood, [edge, edge, edge, edge, face, face]);
     }
     return this.doorMats.get(wood);
