@@ -620,13 +620,14 @@ async function actAt(e, button) {
     return;
   }
   const erasing = tool === 'erase' || button === 2 || e.shiftKey;
-  // doors: click one with the Door tool to open / close (or recolour) it; Erase removes it
+  // doors: click one with any tool (except the area tools) to open / close it; with the Door tool and a different
+  // planks colour selected it is repainted instead; Erase removes it
   if (!['box', 'select', 'paste'].includes(tool)) {
-    const doorId = tool === 'door' || erasing ? view.doorAt(ray) : null;
+    const doorId = view.doorAt(ray);
     if (doorId != null) {
       const door = world.getDoor(doorId);
       if (erasing) world.removeDoor(doorId);
-      else if (DOOR_WOODS.includes(selected) && selected !== door.wood) world.changeDoor(doorId, { wood: selected });
+      else if (tool === 'door' && DOOR_WOODS.includes(selected) && selected !== door.wood) world.changeDoor(doorId, { wood: selected });
       else world.changeDoor(doorId, { open: !door.open });
       return;
     }
