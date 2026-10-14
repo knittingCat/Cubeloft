@@ -901,13 +901,13 @@ export class DioramaView {
     // with a leaf plate on each face
     const hingeMat = this.mat('#4b4b50');
     for (const y of [0.4, 1.6]) {
-      const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, T + 0.16), hingeMat);
+      const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, T + 0.06), hingeMat);
       barrel.position.set(-0.5 + 0.04, y, 0);
       barrel.castShadow = true;
       panel.add(barrel);
       for (const side of [1, -1]) {
-        const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.18, 0.03), hingeMat);
-        leaf.position.set(-0.5 + 0.1, y, side * (T / 2 + 0.015));
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.02), hingeMat);
+        leaf.position.set(-0.5 + 0.06, y, side * (T / 2 + 0.01));
         leaf.castShadow = true;
         panel.add(leaf);
       }
