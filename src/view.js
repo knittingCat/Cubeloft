@@ -1074,9 +1074,9 @@ export class DioramaView {
   // Start playing steps; onEnd(finished) is called when it ends or is stopped. Returns false if nothing to play.
   playAnimation(steps, onEnd) {
     if (this.anim) this.stopAnimation(false);
-    if (this.looking || this.flying) return false;
     const plan = this.planAnimation(steps);
     if (!plan) return false;
+    if (this.looking) plan.people.delete(this.looking.id); // their own view is driven by the keys, not the animation
     this.anim = { plan, t0: performance.now(), onEnd };
     return true;
   }
@@ -1129,7 +1129,7 @@ export class DioramaView {
   // Nothing is written to the person until exitPerson() hands back the final state.
   enterPerson(p) {
     const entry = this.personGroups.get(p.id);
-    if (!entry || this.looking || this.flying) return false;
+    if (!entry || this.looking || this.flying || this.anim) return false;
     this.saved = { pos: this.camera.position.clone(), target: this.controls.target.clone(), fov: this.camera.fov };
     this.looking = {
       id: p.id,
@@ -1434,7 +1434,7 @@ export class DioramaView {
   // Arrows fly: up/down forward/back, left/right turn. Shift + arrows: left/right slide sideways, up/down rise/sink.
   // Dragging looks around; a plain click still builds because main.js tells clicks and drags apart.
   enterFly() {
-    if (this.flying || this.looking) return false;
+    if (this.flying || this.looking || this.anim) return false;
     const dir = this.controls.target.clone().sub(this.camera.position).normalize();
     this.saved = { pos: this.camera.position.clone(), target: this.controls.target.clone(), fov: this.camera.fov };
     const F = (this.flying = {

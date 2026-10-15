@@ -575,6 +575,7 @@ let movingPerson = null; // id of a person waiting to be moved to the next click
 
 function startLooking(id) {
   const person = world.getPerson(id);
+  if (view.animating) return toast('Stop the animation first.');
   if (!person || !view.enterPerson(person)) return;
   $('#lookBar').hidden = false;
 }
@@ -584,6 +585,8 @@ function toggleFly() {
     view.exitFly();
     $('#flyBar').hidden = true;
     $('#flyBtn').classList.remove('active');
+  } else if (view.animating) {
+    toast('Stop the animation first.');
   } else if (view.enterFly()) {
     $('#flyBar').hidden = false;
     $('#flyBtn').classList.add('active');
@@ -639,7 +642,6 @@ function setAnimMode(mode, hint = '') {
 }
 
 function toggleAnimBar(show = !animOpen()) {
-  if (show && (view.looking || view.flying)) return toast('Finish looking through the person or flying first.');
   if (!show) {
     view.stopAnimation(false);
     setAnimMode(null);
@@ -647,7 +649,7 @@ function toggleAnimBar(show = !animOpen()) {
   $('#animBar').hidden = !show;
   $('#animBtn').classList.toggle('active', show);
   if (show) {
-    setTool('build');
+    if (!view.looking) setTool('build');
     renderAnimSteps();
     setAnimMode(null, world.animation.length ? '' : 'Pick Walk or Door, then click what should move. Steps play one after another.');
   }
@@ -1222,8 +1224,14 @@ function wireUI() {
   $('#lookDone').onclick = stopLooking;
   $('#animBtn').onclick = () => toggleAnimBar();
   $('#animDone').onclick = () => toggleAnimBar(false);
-  $('#animWalk').onclick = () => !view.animating && setAnimMode('walkPerson', 'Click the person who should walk.');
-  $('#animDoor').onclick = () => !view.animating && setAnimMode('door', 'Click the door to open or close.');
+  $('#animWalk').onclick = () => {
+    if (view.looking) return toast('Finish looking through the person to add a Walk step. Play and Wait still work.');
+    if (!view.animating) setAnimMode('walkPerson', 'Click the person who should walk.');
+  };
+  $('#animDoor').onclick = () => {
+    if (view.looking) return toast('Finish looking through the person to add a Door step. Play and Wait still work.');
+    if (!view.animating) setAnimMode('door', 'Click the door to open or close.');
+  };
   $('#animWait').onclick = () => !view.animating && addAnimStep({ type: 'wait', seconds: 1 });
   $('#animPlay').onclick = playAnimation;
   $('#animStop').onclick = () => view.stopAnimation(false);
@@ -1238,6 +1246,7 @@ function wireUI() {
   window.addEventListener('keydown', (e) => {
     if (view.looking) {
       if (e.key === 'Escape' || e.key === 'Enter') stopLooking();
+      else if (e.key.toLowerCase() === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey) toggleAnimBar();
       return;
     }
     if (e.target.closest?.('input, textarea, select') || document.querySelector('dialog[open]')) return;
