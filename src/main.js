@@ -575,6 +575,7 @@ let movingPerson = null; // id of a person waiting to be moved to the next click
 
 function startLooking(id) {
   const person = world.getPerson(id);
+  if (view.animating) return toast('Stop the animation first.');
   if (!person || !view.enterPerson(person)) return;
   $('#lookBar').hidden = false;
 }
@@ -673,13 +674,8 @@ function doorOpenAfterSteps(id) {
 }
 
 function animClick(e, button) {
+  if (view.animating) return;
   const { ray, hit } = currentHit(e);
-  if (view.animating) {
-    // while it plays, clicking a person becomes them: the arrow keys then move you, the rest keeps playing
-    const id = e.button === 2 || view.looking ? null : view.personAt(ray);
-    if (id != null) startLooking(id);
-    return;
-  }
   if (button === 2 || e.button === 2) return setAnimMode(null, animMode ? 'Cancelled.' : '');
   if (animMode === 'walkPerson') {
     const id = view.personAt(ray) ?? personAtCells(hit);
@@ -714,7 +710,7 @@ function animClick(e, button) {
 
 // from: index of the step to start at (a just-added step plays by itself, from where the steps before it end)
 // onDone: called when it ends or is stopped. Returns whether it started.
-function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing… click a person to become them and move with the arrow keys.') {
+function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing…') {
   if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.'), false;
   const started = view.playAnimation(
     world.animation,
