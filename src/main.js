@@ -663,6 +663,7 @@ function addAnimStep(step) {
   if ($('#animTogether').checked && steps.length) step.together = true;
   steps.push(step);
   world.setAnimation(steps);
+  if (step.type !== 'wait') playAnimation(steps.length - 1, true); // show the new step right away, in real time
 }
 
 // Is the door open once every step so far has played? (so a new Door step flips it to the other state)
@@ -684,7 +685,7 @@ function animClick(e, button) {
   } else if (animMode === 'walkDest') {
     if (!hit || !hit.prev || !world.getPerson(animPerson)) return;
     addAnimStep({ type: 'walk', person: animPerson, x: hit.prev[0], y: hit.prev[1], z: hit.prev[2] });
-    setAnimMode(null, 'Added. Press Play to watch, or add more steps.');
+    setAnimMode(null, 'Added. It plays once now; press Play to watch it all, or add more steps.');
   } else if (animMode === 'turnPerson') {
     const id = view.personAt(ray) ?? personAtCells(hit);
     if (id == null) return toast('Click a person.');
@@ -693,23 +694,28 @@ function animClick(e, button) {
   } else if (animMode === 'turnDest') {
     if (!hit || !hit.prev || !world.getPerson(animPerson)) return;
     addAnimStep({ type: 'turn', person: animPerson, x: hit.prev[0], z: hit.prev[2] });
-    setAnimMode(null, 'Added. Press Play to watch, or add more steps.');
+    setAnimMode(null, 'Added. It plays once now; press Play to watch it all, or add more steps.');
   } else if (animMode === 'door') {
     const id = view.doorAt(ray);
     if (id == null) return toast('Click a door.');
     addAnimStep({ type: 'door', door: id, open: !doorOpenAfterSteps(id) });
-    setAnimMode(null, 'Added. Press Play to watch, or add more steps.');
+    setAnimMode(null, 'Added. It plays once now; press Play to watch it all, or add more steps.');
   }
 }
 
-function playAnimation() {
+// from: index of the step to start at (a just-added step plays by itself, from where the steps before it end)
+function playAnimation(from = 0, quiet = false) {
   if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.');
-  const started = view.playAnimation(world.animation, () => {
-    $('#animPlay').hidden = false;
-    $('#animStop').hidden = true;
-    setAnimMode(null, '');
-  });
-  if (!started) return toast('Nothing to play: the people or doors in the steps are gone.');
+  const started = view.playAnimation(
+    world.animation,
+    () => {
+      $('#animPlay').hidden = false;
+      $('#animStop').hidden = true;
+      setAnimMode(null, '');
+    },
+    from,
+  );
+  if (!started) return quiet || toast('Nothing to play: the people or doors in the steps are gone.');
   setAnimMode(null, 'Playing…');
   $('#animPlay').hidden = true;
   $('#animStop').hidden = false;
@@ -1247,7 +1253,7 @@ function wireUI() {
     if (!view.animating) setAnimMode('door', 'Click the door to open or close.');
   };
   $('#animWait').onclick = () => !view.animating && addAnimStep({ type: 'wait', seconds: 1 });
-  $('#animPlay').onclick = playAnimation;
+  $('#animPlay').onclick = () => playAnimation();
   $('#animStop').onclick = () => view.stopAnimation(false);
   $('#animClear').onclick = () => {
     if (view.animating || !world.animation.length) return;

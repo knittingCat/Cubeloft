@@ -972,8 +972,10 @@ export class DioramaView {
     let end = 0;
     let prevStart = 0;
     let total = 0;
-    for (const s of steps) {
+    const stepStart = []; // when each step begins, so playback can start part-way through
+    for (const [i, s] of steps.entries()) {
       const start = s.together ? prevStart : end;
+      stepStart[i] = start;
       let dur = 0;
       if (s.type === 'walk') {
         const p = world.getPerson(s.person);
@@ -1017,7 +1019,7 @@ export class DioramaView {
       end = Math.max(end, start + dur);
       total = Math.max(total, start + dur);
     }
-    return total > 0 ? { people, doors, total } : null;
+    return total > 0 ? { people, doors, total, stepStart } : null;
   }
 
   // Pose one person at time t: position, facing, and swinging legs and arms.
@@ -1085,12 +1087,15 @@ export class DioramaView {
   }
 
   // Start playing steps; onEnd(finished) is called when it ends or is stopped. Returns false if nothing to play.
-  playAnimation(steps, onEnd) {
+  // `from` is the index of the step to start at: everything before it is already done (people and doors stand where they ended).
+  playAnimation(steps, onEnd, from = 0) {
     if (this.anim) this.stopAnimation(false);
     const plan = this.planAnimation(steps);
     if (!plan) return false;
     if (this.looking) plan.people.delete(this.looking.id); // their own view is driven by the keys, not the animation
-    this.anim = { plan, t0: performance.now(), onEnd };
+    const skip = plan.stepStart[from] ?? 0;
+    if (skip >= plan.total) return false; // the step turned out to do nothing
+    this.anim = { plan, t0: performance.now() - skip * 1000, onEnd };
     return true;
   }
 
