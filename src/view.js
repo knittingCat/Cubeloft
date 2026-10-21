@@ -1092,7 +1092,9 @@ export class DioramaView {
     if (this.anim) this.stopAnimation(false);
     const plan = this.planAnimation(steps);
     if (!plan) return false;
-    if (this.looking) plan.people.delete(this.looking.id); // their own view is driven by the keys, not the animation
+    // Looking through a person: if the steps move them, you ride along (the camera follows their animated walk and turns);
+    // if they have no steps, or are lying or sitting, the arrow keys move you as usual.
+    if (this.looking && this.looking.pose !== 'standing') plan.people.delete(this.looking.id);
     const skip = plan.stepStart[from] ?? 0;
     if (skip >= plan.total) return false; // the step turned out to do nothing
     this.anim = { plan, t0: performance.now() - skip * 1000, onEnd };
@@ -1104,6 +1106,7 @@ export class DioramaView {
     const t = (performance.now() - t0) / 1000;
     for (const [id, rec] of plan.people) this.poseAnimatedPerson(id, rec, t);
     for (const [id, rec] of plan.doors) this.poseAnimatedDoor(id, rec, t);
+    if (this.following()) this.followCamera();
     this.dirty = true;
     if (t > plan.total + 0.3) this.stopAnimation(true);
   }
@@ -1130,7 +1133,31 @@ export class DioramaView {
     }
     this.rebuildPeople();
     this.rebuildDoors();
+    if (this.looking) {
+      // the figure was rebuilt: keep it hidden from its own eyes, and go back to where the keys left you
+      const entry = this.personGroups.get(this.looking.id);
+      if (entry) {
+        entry.group.visible = false;
+        this.looking.group = entry.group;
+      }
+      this.applyLook();
+    }
     if (onEnd) onEnd(finished);
+  }
+
+  // Is the person you are looking through being moved by the animation right now?
+  following() {
+    return !!(this.looking && this.anim && this.anim.plan.people.has(this.looking.id));
+  }
+
+  // Put the camera at the animated person's eyes, facing the way they walk, plus any head turn you dragged.
+  followCamera() {
+    const L = this.looking;
+    const holder = this.personGroups.get(L.id)?.group;
+    if (!holder) return;
+    this.camera.position.set(holder.position.x, holder.position.y + 1.4, holder.position.z);
+    L.headPitch = Math.max(-0.7, Math.min(0.7, L.headPitch));
+    this.camera.rotation.set(-L.headPitch, holder.children[0].rotation.y + L.headYaw + Math.PI, 0);
   }
 
   // Which way (0-3) a figure on this cell should face to look toward the camera.
@@ -1182,6 +1209,7 @@ export class DioramaView {
     L.key = (e) => {
       if (!e.key.startsWith('Arrow')) return;
       e.preventDefault();
+      if (this.following()) return; // the animation is walking you; the arrows work again when it stops
       if (e.shiftKey) {
         if (e.key === 'ArrowLeft') L.k = (L.k + 1) % 12;
         else if (e.key === 'ArrowRight') L.k = (L.k + 11) % 12;
@@ -1245,6 +1273,7 @@ export class DioramaView {
 
   applyLook() {
     const L = this.looking;
+    if (this.following()) return this.followCamera(); // the animation is moving you; only the head drag applies
     const lying = L.pose === 'lying' || L.pose === 'lyingFront';
     const a = (L.k * Math.PI) / 6; // the figure faces (sin a, 0, cos a)
     L.headYaw = Math.max(-Math.PI, Math.min(Math.PI, L.headYaw));
