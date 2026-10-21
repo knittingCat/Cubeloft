@@ -138,7 +138,19 @@ body:has(#lookBar:not([hidden])) #animBar, body:has(#flyBar:not([hidden])) #anim
 #animSteps li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .1rem 0; }
 #animSteps li.together { margin-left: 1rem; list-style-type: circle; }
 #animSteps button { padding: 0 .4rem; line-height: 1.3; }
-#reportsBtn { position: relative; }
+/* feedback chat */
+.chatlog { display: flex; flex-direction: column; gap: .5rem; max-height: 48vh; overflow-y: auto; margin: .6rem 0; padding: .2rem; }
+.bubble { max-width: 85%; padding: .45rem .7rem; border-radius: 12px; background: var(--panel2); border: 1px solid var(--line); align-self: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.mine { align-self: flex-end; background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.bubble small { display: block; opacity: .75; font-size: .72rem; margin-bottom: .1rem; }
+.chatform { display: flex; gap: .5rem; align-items: flex-end; }
+.chatform textarea { flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .5rem .6rem; color: var(--text); font: inherit; resize: vertical; }
+.threadlist { display: flex; flex-direction: column; gap: .4rem; margin: .6rem 0; }
+.threadlist button { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; white-space: normal; text-align: left; width: 100%; }
+.threadlist button.unread { border-color: var(--accent); }
+.threadlist .meta { color: var(--muted); font-size: .78rem; }
+#feedbackBtn, #reportsBtn { position: relative; }
+#feedbackBtn .count,
 #reportsBtn .count { position: absolute; top: -6px; left: -6px; width: 1.15rem; height: 1.15rem; padding: 0; min-width: 0; line-height: 1.15rem; font-weight: 700; box-shadow: 0 0 0 2px #1a1d2b; }
 
 /* the hidden attribute must win over the display rules above (it was not hiding toolbar buttons) */
