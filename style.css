@@ -13,7 +13,7 @@ button.active { background: var(--accent); border-color: var(--accent); color: v
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
 :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
-#top { display: flex; flex-wrap: wrap; gap: .5rem .9rem; align-items: center; padding: .5rem .8rem; background: var(--panel); border-bottom: 1px solid var(--line); z-index: 5; }
+#top { display: flex; flex-wrap: wrap; gap: .5rem .6rem; align-items: center; padding: .5rem .8rem; background: var(--panel); border-bottom: 1px solid var(--line); z-index: 5; }
 .brand { font-weight: 800; font-size: 1.1rem; margin-right: .3rem; }
 .group { display: flex; gap: .3rem; flex-wrap: wrap; }
 
@@ -94,7 +94,7 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 #pasteBar[hidden] { display: none; }
 
 /* ----- icon buttons ----- */
-#top button, #pasteBar button, #reportBtn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .4rem .55rem; }
+#top button, #pasteBar button, #reportBtn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .4rem .45rem; }
 button svg { width: 20px; height: 20px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 #accountBtn span:empty { display: none; }
 

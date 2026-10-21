@@ -1,5 +1,6 @@
 // Runs the real server against throw-away tables (zz_test_*) in the Neon database from .env, then drops them.
 process.env.TABLE_PREFIX = 'zz_test_';
+process.env.FEEDBACK_READER = 'dee_admin'; // stands in for the Claude account
 import assert from 'node:assert/strict';
 
 const { createApp } = await import('../server/index.js');
@@ -322,22 +323,31 @@ try {
     assert.equal((await ben.call('GET', '/api/reports')).json.reports.length, 0); // non-admins see nothing
   });
 
-  await test('feedback: signed-in people send feature requests and errors; only admins read and close them', async () => {
+  await test('feedback: one open conversation each; only the reader account (dee_admin here) sees everyone\'s', async () => {
     assert.equal((await new Client().call('POST', '/api/feedback', { kind: 'feature', message: 'x' })).status, 401);
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'bogus', message: 'x' })).status, 400);
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: '  ' })).status, 400);
-    assert.equal((await ben.call('POST', '/api/feedback', { kind: 'feature', message: 'Add doors' })).status, 200);
-    assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: 'Save failed' })).status, 200);
-    assert.equal((await ben.call('GET', '/api/feedback')).json.feedback.length, 2); // everyone sees their own requests
+    const first = await ben.call('POST', '/api/feedback', { kind: 'feature', message: 'Add doors' });
+    assert.equal(first.status, 200);
+    const second = await ben.call('POST', '/api/feedback', { kind: 'error', message: 'Save failed' });
+    assert.equal(second.status, 409); // only one at a time
+    assert.equal(second.json.id, first.json.id);
+    assert.equal((await ben.call('GET', '/api/feedback')).json.feedback.length, 1); // everyone sees their own
     assert.equal((await ann.call('GET', '/api/feedback')).json.feedback.length, 0); // but not other people's
+    const cat = new Client(); // an admin, but not the reader account
+    assert.equal((await cat.call('POST', '/api/login', { username: 'cat_mod', password: 'longenough3' })).status, 200);
+    assert.equal((await cat.call('GET', '/api/feedback')).json.feedback.length, 0);
+    assert.equal((await cat.call('GET', `/api/feedback/${first.json.id}`)).status, 404);
+    assert.equal((await cat.call('GET', '/api/me')).json.user.feedbackReader, false);
     const dee = new Client();
     assert.equal((await dee.call('POST', '/api/login', { username: 'dee_admin', password: 'longenough4' })).status, 200);
+    assert.equal((await dee.call('GET', '/api/me')).json.user.feedbackReader, true);
     const list = await dee.call('GET', '/api/feedback');
-    assert.equal(list.json.feedback.length, 2);
-    assert.deepEqual(list.json.feedback.map((f) => f.kind), ['feature', 'error']);
-    assert.equal((await ann.call('POST', `/api/feedback/${list.json.feedback[0].id}/done`)).status, 404); // a stranger cannot even see it
-    assert.equal((await dee.call('POST', `/api/feedback/${list.json.feedback[0].id}/done`)).status, 200);
-    assert.equal((await dee.call('GET', '/api/feedback')).json.feedback.length, 1);
+    assert.deepEqual(list.json.feedback.map((f) => f.kind), ['feature']);
+    assert.equal((await ann.call('POST', `/api/feedback/${first.json.id}/done`)).status, 404); // a stranger cannot even see it
+    assert.equal((await dee.call('POST', `/api/feedback/${first.json.id}/done`)).status, 200);
+    assert.equal((await dee.call('GET', '/api/feedback')).json.feedback.length, 0);
+    assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: 'Save failed' })).status, 200); // closed, so a new one is fine
   });
 
   await test('feedback chat: sender and admins reply to each other until it is closed; unread counts follow', async () => {

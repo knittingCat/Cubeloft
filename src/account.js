@@ -32,7 +32,7 @@ export async function initAccount(ctx) {
     const fbBadge = $('.count', feedbackBtn);
     fbBadge.hidden = unread === 0;
     fbBadge.textContent = unread;
-    feedbackBtn.title = unread ? `${unread} conversation${unread > 1 ? 's' : ''} with something new` : 'Ask for a feature or report an error, and chat about it until it is closed';
+    feedbackBtn.title = unread ? `${unread} conversation${unread > 1 ? 's' : ''} with something new` : 'Request a feature or report an error (one conversation at a time)';
     $('span', accountBtn).textContent = user ? user.username : '';
     accountBtn.setAttribute('aria-label', user ? `Account: ${user.username}` : 'Sign in');
     accountBtn.title = user ? 'Your dioramas and settings' : 'Sign in or create an account';
@@ -359,7 +359,7 @@ export async function initAccount(ctx) {
         <div class="row"><button type="button" data-act="feedback">Feedback: request a feature or report an error</button><button type="button" class="primary" data-act="close">Close</button></div>`,
         { wide: true },
       );
-      $('[data-act=feedback]', el).onclick = feedbackListView;
+      $('[data-act=feedback]', el).onclick = feedbackEntry;
       wireCards(el);
       el.querySelectorAll('[data-class]').forEach((b) => (b.onclick = () => classView(Number(b.dataset.class))));
       $('#joinForm', el).onsubmit = async (e) => {
@@ -545,6 +545,21 @@ export async function initAccount(ctx) {
   const whenText = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const KIND_NAMES = { feature: 'Feature request', error: 'Something broken' };
 
+  // The feedback button: like the original form for starting one, but you only get one conversation at a time, so if one is
+  // still open you go straight back to it. Only Claude's account gets the inbox of everyone's.
+  async function feedbackEntry() {
+    if (user.feedbackReader) return feedbackListView();
+    try {
+      const { feedback } = await api('GET', '/api/feedback');
+      const current = feedback.find((f) => f.status === 'open');
+      if (current) chatView(current.id);
+      else feedbackView();
+    } catch (err) {
+      ctx.toast(err.message);
+    }
+  }
+
+  // The inbox, for Claude's account only: every open request, whoever sent it.
   async function feedbackListView() {
     open('<h2>Feedback</h2><p class="hint">Loading…</p>');
     try {
@@ -552,16 +567,15 @@ export async function initAccount(ctx) {
       refreshMe().catch(() => {});
       const row = (f) => `<button type="button" data-thread="${f.id}" class="${f.unread ? 'unread' : ''}">
           <span>${f.unread ? '● ' : ''}${esc(f.message.length > 90 ? f.message.slice(0, 90) + '…' : f.message)}</span>
-          <span class="meta">${KIND_NAMES[f.kind] || f.kind}${user.isAdmin ? ' · from ' + esc(f.from) : ''} · ${f.replies} repl${f.replies === 1 ? 'y' : 'ies'} · ${esc(whenText(f.updatedAt))}${f.status === 'open' ? '' : ' · closed'}</span>
+          <span class="meta">${KIND_NAMES[f.kind] || f.kind} · from ${esc(f.from)} · ${f.replies} repl${f.replies === 1 ? 'y' : 'ies'} · ${esc(whenText(f.updatedAt))}${f.status === 'open' ? '' : ' · closed'}</span>
         </button>`;
       const el = open(
         `<h2>Feedback</h2>
-        <p class="hint">${user.isAdmin ? 'Open requests from everyone. Open one to reply or close it.' : 'Ask for a feature or tell us something is broken. It becomes a chat: we can answer you, you can answer back, until it is closed.'}</p>
-        <div class="threadlist">${feedback.length ? feedback.map(row).join('') : '<span class="hint">Nothing here yet.</span>'}</div>
-        <div class="row"><button type="button" data-act="close">Close</button><button type="button" class="primary" data-act="new">New request</button></div>`,
+        <p class="hint">Open requests from everyone. Open one to reply or close it.</p>
+        <div class="threadlist">${feedback.length ? feedback.map(row).join('') : '<span class="hint">Nothing open.</span>'}</div>
+        <div class="row"><button type="button" class="primary" data-act="close">Close</button></div>`,
       );
       $('[data-act=close]', el).onclick = close;
-      $('[data-act=new]', el).onclick = feedbackView;
       el.querySelectorAll('[data-thread]').forEach((b) => (b.onclick = () => chatView(Number(b.dataset.thread))));
     } catch (err) {
       ctx.toast(err.message);
@@ -569,18 +583,18 @@ export async function initAccount(ctx) {
     }
   }
 
-  // A new request: the first message of a chat.
+  // The original form for starting one; sending it opens the chat, which stays open until someone closes it.
   function feedbackView() {
     const el = open(`
-      <h2>New request</h2>
-      <p class="hint">Tell the developer what you would like, or what went wrong. You can keep talking about it afterwards.</p>
+      <h2>Request a feature or report an error</h2>
+      <p class="hint">Tell the developer what you would like, or what went wrong. It becomes a chat: you can reply to each other until it is closed. You can have one at a time.</p>
       <form id="feedbackForm">
         <label>What is it? <select name="kind"><option value="feature">I want a new feature</option><option value="error">Something is broken</option></select></label>
         <label>Details <textarea name="message" rows="5" maxlength="1000" required></textarea></label>
         <p class="error" id="feedbackError" hidden></p>
-        <div class="row"><button type="button" data-act="back">Back</button><button type="submit" class="primary">Send</button></div>
+        <div class="row"><button type="button" data-act="back">Cancel</button><button type="submit" class="primary">Send</button></div>
       </form>`);
-    $('[data-act=back]', el).onclick = feedbackListView;
+    $('[data-act=back]', el).onclick = close;
     $('#feedbackForm', el).onsubmit = async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
@@ -608,15 +622,15 @@ export async function initAccount(ctx) {
     const bubble = (m) => `<div class="bubble${m.mine ? ' mine' : ''}"><small>${m.mine ? 'You' : esc(m.fromDev ? m.from + ' (developer)' : m.from)} · ${esc(whenText(m.createdAt))}</small>${esc(m.text)}</div>`;
     const closed = thread.status !== 'open';
     const el = open(
-      `<h2>${KIND_NAMES[thread.kind] || 'Conversation'} <small>${closed ? 'closed' : 'open'}${user.isAdmin && !thread.mine ? ' · from ' + esc(thread.from) : ''}</small></h2>
+      `<h2>${KIND_NAMES[thread.kind] || 'Conversation'} <small>${closed ? 'closed' : 'open'}${user.feedbackReader && !thread.mine ? ' · from ' + esc(thread.from) : ''}</small></h2>
       <div class="chatlog" id="chatLog"></div>
       ${
         closed
-          ? '<p class="hint">This conversation is closed. Start a new request if there is more to say.</p>'
+          ? `<p class="hint">This conversation is closed.${user.feedbackReader ? '' : ' You can start a new request.'}</p>`
           : `<form id="chatForm" class="chatform"><textarea name="message" rows="2" maxlength="1000" placeholder="Write a message (Enter sends, Shift+Enter for a new line)" required></textarea><button type="submit" class="primary">Send</button></form>
              <p class="error" id="chatError" hidden></p>`
       }
-      <div class="row"><button type="button" data-act="back">Back</button>${closed ? '' : '<button type="button" data-act="done">Close conversation</button>'}</div>`,
+      <div class="row"><button type="button" data-act="back">${user.feedbackReader ? 'Back' : 'Hide'}</button>${closed && !user.feedbackReader ? '<button type="button" class="primary" data-act="again">New request</button>' : ''}${closed ? '' : '<button type="button" data-act="done">Close conversation</button>'}</div>`,
     );
     const log = $('#chatLog', el);
     let shown = -1;
@@ -628,7 +642,8 @@ export async function initAccount(ctx) {
       if (atEnd) log.scrollTop = log.scrollHeight;
     };
     draw(thread);
-    $('[data-act=back]', el).onclick = feedbackListView;
+    $('[data-act=back]', el).onclick = user.feedbackReader ? feedbackListView : close;
+    if ($('[data-act=again]', el)) $('[data-act=again]', el).onclick = feedbackView;
     if (closed) return;
     const reload = async () => {
       const t = await api('GET', `/api/feedback/${id}`);
@@ -696,7 +711,7 @@ export async function initAccount(ctx) {
   // ---------- toolbar ----------
   reportsBtn.onclick = reportsView;
   accountBtn.onclick = () => (user ? mineView() : authView());
-  feedbackBtn.onclick = () => (user ? feedbackListView() : needSignIn('Sign in to send feedback and chat about it.', feedbackListView));
+  feedbackBtn.onclick = () => (user ? feedbackEntry() : needSignIn('Sign in to send feedback and chat about it.', feedbackEntry));
   galleryBtn.onclick = () => (user ? galleryView() : needSignIn('Sign in to see the gallery.', galleryView));
 
   // Asked every time the site opens while nobody is signed in.

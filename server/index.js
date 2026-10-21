@@ -69,11 +69,14 @@ async function countReports(user) {
   return rows[0].n;
 }
 
+// Only this one account (Claude's) can read everyone's feedback and answer it; every other account, admins included, sees only its own.
+const canReadAllFeedback = (u) => !!u.is_admin && u.username.toLowerCase() === (process.env.FEEDBACK_READER || 'Claude').toLowerCase();
+
 // Chats with something new for this person to read: replies on their own requests, plus (admins) open requests they have not read.
 async function countFeedbackUnread(user) {
   const { rows } = await query(
     `SELECT COUNT(*)::int AS n FROM ${T.feedback} WHERE (user_id = $1 AND user_unread) OR ($2 AND status = 'open' AND admin_unread AND user_id IS DISTINCT FROM $1)`,
-    [user.id, !!user.is_admin],
+    [user.id, canReadAllFeedback(user)],
   );
   return rows[0].n;
 }
@@ -141,7 +144,7 @@ export function createApp() {
   // --- accounts ---
   app.get('/api/me', wrap(async (req, res) => {
     if (!req.user) return res.json({ user: null });
-    res.json({ user: { ...publicUser(req.user), pendingReports: await countReports(req.user), feedbackUnread: await countFeedbackUnread(req.user) } });
+    res.json({ user: { ...publicUser(req.user), pendingReports: await countReports(req.user), feedbackReader: canReadAllFeedback(req.user), feedbackUnread: await countFeedbackUnread(req.user) } });
   }));
 
   app.post('/api/signup', rateLimiter({ windowMs: 3600e3, max: 10 }), wrap(async (req, res) => {
@@ -578,7 +581,7 @@ export function createApp() {
     const { rows } = await query(`SELECT f.*, u.username FROM ${T.feedback} f LEFT JOIN ${T.users} u ON u.id = f.user_id WHERE f.id = $1`, [Number(req.params.id) || 0]);
     const f = rows[0];
     const mine = !!f && f.user_id === req.user.id;
-    if (!f || !(mine || req.user.is_admin)) return bad(res, 404, 'Not found.'), null;
+    if (!f || !(mine || canReadAllFeedback(req.user))) return bad(res, 404, 'Not found.'), null;
     return { f, mine };
   };
 
@@ -587,13 +590,16 @@ export function createApp() {
     const message = String(req.body.message || '').trim().slice(0, 1000);
     if (!['feature', 'error'].includes(kind)) return bad(res, 400, 'Choose feature request or error.');
     if (!message) return bad(res, 400, 'Please write a few words.');
+    // one conversation at a time: finish (close) the open one before starting another
+    const open = await query(`SELECT id FROM ${T.feedback} WHERE user_id = $1 AND status = 'open' LIMIT 1`, [req.user.id]);
+    if (open.rows[0]) return bad(res, 409, 'You already have an open conversation. Close it before starting a new one.', { id: open.rows[0].id });
     const { rows } = await query(`INSERT INTO ${T.feedback} (kind, message, user_id) VALUES ($1,$2,$3) RETURNING id`, [kind, message, req.user.id]);
     res.json({ ok: true, id: rows[0].id });
   }));
 
   // Admins see every open request (add ?mine=1 for only their own); everyone else sees their own, open and closed.
   app.get('/api/feedback', needUser, wrap(async (req, res) => {
-    const all = !!req.user.is_admin && req.query.mine !== '1';
+    const all = canReadAllFeedback(req.user) && req.query.mine !== '1';
     const { rows } = await query(
       `SELECT f.id, f.kind, f.message, f.status, f.created_at, f.updated_at, f.user_id, f.user_unread, f.admin_unread, u.username,
          (SELECT COUNT(*)::int FROM ${T.feedbackMessages} m WHERE m.feedback_id = f.id) AS replies
