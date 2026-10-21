@@ -234,7 +234,8 @@ export class DioramaView {
     this.hemiBase = s.hemi;
     this.hemi.intensity = s.hemi * (this.indoor ?? 1);
     this.sun.color.set(s.sun);
-    this.sun.intensity = s.sunI;
+    this.sunBase = s.sunI;
+    this.sun.intensity = s.sunI * (0.2 + (0.8 * ((this.indoor ?? 1) - 0.3)) / 0.7);
     const k = this.world.size;
     this.sun.position.set(s.sunPos[0] * k, s.sunPos[1] * k, s.sunPos[2] * k);
     this.stars.visible = s.stars;
@@ -1169,6 +1170,7 @@ export class DioramaView {
     if (next === cur) return;
     this.indoor = next;
     this.hemi.intensity = (this.hemiBase ?? 1) * next;
+    this.sun.intensity = (this.sunBase ?? this.sun.intensity) * (0.2 + (0.8 * (next - 0.3)) / 0.7); // the sun gets through gaps and glass, but not at full strength
     this.dirty = true;
   }
 
