@@ -235,7 +235,7 @@ export class DioramaView {
     this.hemi.intensity = s.hemi * (this.indoor ?? 1);
     this.sun.color.set(s.sun);
     this.sunBase = s.sunI;
-    this.sun.intensity = s.sunI * (0.2 + (0.8 * ((this.indoor ?? 1) - 0.3)) / 0.7);
+    this.sun.intensity = s.sunI * (this.indoor ?? 1);
     const k = this.world.size;
     this.sun.position.set(s.sunPos[0] * k, s.sunPos[1] * k, s.sunPos[2] * k);
     this.stars.visible = s.stars;
@@ -1159,7 +1159,7 @@ export class DioramaView {
         for (let y = Math.floor(p.y) + 1; y < this.world.height; y++) {
           const id = this.world.get(x, y, z);
           if (id && !BLOCK_BY_ID.get(id)?.alpha) {
-            target = 0.3;
+            target = 0.1; // the screen brightens dark values a lot (sRGB), so 30% still looked bright on a grass floor
             break;
           }
         }
@@ -1170,7 +1170,7 @@ export class DioramaView {
     if (next === cur) return;
     this.indoor = next;
     this.hemi.intensity = (this.hemiBase ?? 1) * next;
-    this.sun.intensity = (this.sunBase ?? this.sun.intensity) * (0.2 + (0.8 * (next - 0.3)) / 0.7); // the sun gets through gaps and glass, but not at full strength
+    this.sun.intensity = (this.sunBase ?? this.sun.intensity) * next; // the sun too: gaps and glass let some through that the shadows do not stop
     this.dirty = true;
   }
 
