@@ -651,7 +651,7 @@ function toggleAnimBar(show = !animOpen()) {
   if (show) {
     if (!view.looking) setTool('build');
     renderAnimSteps();
-    setAnimMode(null, world.animation.length ? '' : 'Pick Walk, Turn or Door, then click what should move. Steps play one after another.');
+    setAnimMode(null, 'Start as a person to look through their eyes and move yourself, or pick Walk, Turn or Door and click what should move. Steps play one after another.');
   }
   refreshHover();
 }
@@ -690,6 +690,11 @@ function animClick(e, button) {
     if (!hit || !hit.prev || !world.getPerson(animPerson)) return;
     addAnimStep({ type: 'walk', person: animPerson, x: hit.prev[0], y: hit.prev[1], z: hit.prev[2] });
     setAnimMode(null, 'Added. It plays once now; press Play to watch it all, or add more steps.');
+  } else if (animMode === 'asPerson') {
+    const id = view.personAt(ray) ?? personAtCells(hit);
+    if (id == null) return toast('Click a person.');
+    startLooking(id);
+    setAnimMode(null, `You are ${personLabel(id)}. Arrow keys move you, Shift+arrows turn; Play runs the steps for everyone else.`);
   } else if (animMode === 'turnPerson') {
     const id = view.personAt(ray) ?? personAtCells(hit);
     if (id == null) return toast('Click a person.');
@@ -1272,6 +1277,10 @@ function wireUI() {
   $('#lookDone').onclick = stopLooking;
   $('#animBtn').onclick = () => toggleAnimBar();
   $('#animDone').onclick = () => toggleAnimBar(false);
+  $('#animAs').onclick = () => {
+    if (view.looking) return toast('You are already looking through a person. Press Done in the person bar to stop.');
+    if (!view.animating) setAnimMode('asPerson', 'Click the person you want to be.');
+  };
   $('#animWalk').onclick = () => {
     if (view.looking) return toast('Finish looking through the person to add a Walk step. Play and Wait still work.');
     if (!view.animating) setAnimMode('walkPerson', 'Click the person who should walk.');
