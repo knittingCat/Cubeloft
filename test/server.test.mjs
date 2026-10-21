@@ -323,16 +323,14 @@ try {
     assert.equal((await ben.call('GET', '/api/reports')).json.reports.length, 0); // non-admins see nothing
   });
 
-  await test('feedback: one open conversation each; only the reader account (dee_admin here) sees everyone\'s', async () => {
+  await test('feedback: several open conversations each; only the reader account (dee_admin here) sees everyone\'s', async () => {
     assert.equal((await new Client().call('POST', '/api/feedback', { kind: 'feature', message: 'x' })).status, 401);
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'bogus', message: 'x' })).status, 400);
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: '  ' })).status, 400);
     const first = await ben.call('POST', '/api/feedback', { kind: 'feature', message: 'Add doors' });
     assert.equal(first.status, 200);
-    const second = await ben.call('POST', '/api/feedback', { kind: 'error', message: 'Save failed' });
-    assert.equal(second.status, 409); // only one at a time
-    assert.equal(second.json.id, first.json.id);
-    assert.equal((await ben.call('GET', '/api/feedback')).json.feedback.length, 1); // everyone sees their own
+    assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: 'Save failed' })).status, 200); // several can be open at once
+    assert.equal((await ben.call('GET', '/api/feedback')).json.feedback.length, 2); // everyone sees their own
     assert.equal((await ann.call('GET', '/api/feedback')).json.feedback.length, 0); // but not other people's
     const cat = new Client(); // an admin, but not the reader account
     assert.equal((await cat.call('POST', '/api/login', { username: 'cat_mod', password: 'longenough3' })).status, 200);
@@ -343,11 +341,10 @@ try {
     assert.equal((await dee.call('POST', '/api/login', { username: 'dee_admin', password: 'longenough4' })).status, 200);
     assert.equal((await dee.call('GET', '/api/me')).json.user.feedbackReader, true);
     const list = await dee.call('GET', '/api/feedback');
-    assert.deepEqual(list.json.feedback.map((f) => f.kind), ['feature']);
+    assert.deepEqual(list.json.feedback.map((f) => f.kind), ['feature', 'error']);
     assert.equal((await ann.call('POST', `/api/feedback/${first.json.id}/done`)).status, 404); // a stranger cannot even see it
     assert.equal((await dee.call('POST', `/api/feedback/${first.json.id}/done`)).status, 200);
-    assert.equal((await dee.call('GET', '/api/feedback')).json.feedback.length, 0);
-    assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: 'Save failed' })).status, 200); // closed, so a new one is fine
+    assert.equal((await dee.call('GET', '/api/feedback')).json.feedback.length, 1); // the other stays open
   });
 
   await test('feedback chat: sender and admins reply to each other until it is closed; unread counts follow', async () => {
