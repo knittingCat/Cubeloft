@@ -1147,14 +1147,23 @@ export class DioramaView {
   // Nothing is written to the person until exitPerson() hands back the final state.
   enterPerson(p) {
     const entry = this.personGroups.get(p.id);
-    if (!entry || this.looking || this.flying || this.anim) return false;
+    if (!entry || this.looking || this.flying) return false;
+    let at = { x: p.x, y: p.y, z: p.z, k: (p.rot * 3 + p.twist) % 12 };
+    const rec = this.anim?.plan.people.get(p.id);
+    if (rec && p.pose === 'standing') {
+      // taking over a person mid-animation: carry on from the nearest cell they are standing on, facing as drawn
+      const h = entry.group;
+      const k = Math.round(h.children[0].rotation.y / (Math.PI / 6));
+      at = { x: Math.round(h.position.x + this.offset - 0.5), y: Math.round(h.position.y), z: Math.round(h.position.z + this.offsetZ - 0.5), k: ((k % 12) + 12) % 12 };
+      this.anim.plan.people.delete(p.id); // from now on the keys move them, not the animation
+    }
     this.saved = { pos: this.camera.position.clone(), target: this.controls.target.clone(), fov: this.camera.fov };
     this.looking = {
       id: p.id,
-      x: p.x,
-      y: p.y,
-      z: p.z,
-      k: (p.rot * 3 + p.twist) % 12, // body direction in 30 degree steps
+      x: at.x,
+      y: at.y,
+      z: at.z,
+      k: at.k, // body direction in 30 degree steps
       pose: p.pose,
       headYaw: (p.headTurn * Math.PI) / 6,
       headPitch: -p.headTilt * 0.35,

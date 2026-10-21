@@ -575,7 +575,6 @@ let movingPerson = null; // id of a person waiting to be moved to the next click
 
 function startLooking(id) {
   const person = world.getPerson(id);
-  if (view.animating) return toast('Stop the animation first.');
   if (!person || !view.enterPerson(person)) return;
   $('#lookBar').hidden = false;
 }
@@ -674,8 +673,13 @@ function doorOpenAfterSteps(id) {
 }
 
 function animClick(e, button) {
-  if (view.animating) return;
   const { ray, hit } = currentHit(e);
+  if (view.animating) {
+    // while it plays, clicking a person becomes them: the arrow keys then move you, the rest keeps playing
+    const id = e.button === 2 || view.looking ? null : view.personAt(ray);
+    if (id != null) startLooking(id);
+    return;
+  }
   if (button === 2 || e.button === 2) return setAnimMode(null, animMode ? 'Cancelled.' : '');
   if (animMode === 'walkPerson') {
     const id = view.personAt(ray) ?? personAtCells(hit);
@@ -704,21 +708,49 @@ function animClick(e, button) {
 }
 
 // from: index of the step to start at (a just-added step plays by itself, from where the steps before it end)
-function playAnimation(from = 0, quiet = false) {
-  if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.');
+// onDone: called when it ends or is stopped. Returns whether it started.
+function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing… click a person to become them and move with the arrow keys.') {
+  if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.'), false;
   const started = view.playAnimation(
     world.animation,
     () => {
       $('#animPlay').hidden = false;
+      $('#animRecord').hidden = false;
       $('#animStop').hidden = true;
       setAnimMode(null, '');
+      onDone?.();
     },
     from,
   );
-  if (!started) return quiet || toast('Nothing to play: the people or doors in the steps are gone.');
-  setAnimMode(null, 'Playing…');
+  if (!started) return quiet || toast('Nothing to play: the people or doors in the steps are gone.'), false;
+  setAnimMode(null, hint);
   $('#animPlay').hidden = true;
+  $('#animRecord').hidden = true;
   $('#animStop').hidden = false;
+  return true;
+}
+
+// Play the whole animation from the start while recording the 3D view to a video file (saved when it ends or is stopped).
+function recordAnimation() {
+  if (view.animating) return;
+  if (typeof MediaRecorder === 'undefined' || !view.canvas.captureStream) return toast('This browser cannot record video. Try Chrome, Edge or Firefox.');
+  if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.');
+  const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find((t) => MediaRecorder.isTypeSupported(t));
+  const chunks = [];
+  const rec = new MediaRecorder(view.canvas.captureStream(30), { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: 8_000_000 });
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  rec.onstop = () => {
+    if (!chunks.length) return;
+    const mime = rec.mimeType || type || 'video/webm';
+    download(new Blob(chunks, { type: mime }), `${slug(world.meta.title)}.${mime.includes('mp4') ? 'mp4' : 'webm'}`);
+    toast('Video saved to your Downloads folder.');
+  };
+  rec.start(250);
+  const started = playAnimation(0, false, () => rec.state !== 'inactive' && rec.stop(), 'Recording… (Stop ends the video early)');
+  if (!started) {
+    rec.onstop = null;
+    rec.stop();
+  }
 }
 
 function stopLooking() {
@@ -1254,6 +1286,7 @@ function wireUI() {
   };
   $('#animWait').onclick = () => !view.animating && addAnimStep({ type: 'wait', seconds: 1 });
   $('#animPlay').onclick = () => playAnimation();
+  $('#animRecord').onclick = recordAnimation;
   $('#animStop').onclick = () => view.stopAnimation(false);
   $('#animClear').onclick = () => {
     if (view.animating || !world.animation.length) return;
