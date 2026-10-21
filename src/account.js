@@ -32,7 +32,7 @@ export async function initAccount(ctx) {
     const fbBadge = $('.count', feedbackBtn);
     fbBadge.hidden = unread === 0;
     fbBadge.textContent = unread;
-    feedbackBtn.title = unread ? `${unread} conversation${unread > 1 ? 's' : ''} with something new` : 'Request a feature or report an error, and chat about it';
+    feedbackBtn.title = unread ? `${unread} conversation${unread > 1 ? 's' : ''} with something new` : 'Request a feature or report an error (one conversation at a time)';
     $('span', accountBtn).textContent = user ? user.username : '';
     accountBtn.setAttribute('aria-label', user ? `Account: ${user.username}` : 'Sign in');
     accountBtn.title = user ? 'Your dioramas and settings' : 'Sign in or create an account';
@@ -545,40 +545,37 @@ export async function initAccount(ctx) {
   const whenText = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const KIND_NAMES = { feature: 'Feature request', error: 'Something broken' };
 
-  // The feedback button: with nothing sent yet it is the original form for starting one; after that it lists your conversations
-  // (as many can be open as you like, one is shown at a time). Only Claude's account gets the inbox of everyone's.
-  let feedbackHas = false; // does this person have any conversation yet?
+  // The feedback button: like the original form for starting one, but you only get one conversation at a time, so if one is
+  // still open you go straight back to it. Only Claude's account gets the inbox of everyone's.
   async function feedbackEntry() {
     if (user.feedbackReader) return feedbackListView();
     try {
       const { feedback } = await api('GET', '/api/feedback');
-      feedbackHas = feedback.length > 0;
-      if (feedbackHas) feedbackListView();
+      const current = feedback.find((f) => f.status === 'open');
+      if (current) chatView(current.id);
       else feedbackView();
     } catch (err) {
       ctx.toast(err.message);
     }
   }
 
+  // The inbox, for Claude's account only: every open request, whoever sent it.
   async function feedbackListView() {
     open('<h2>Feedback</h2><p class="hint">Loading…</p>');
     try {
       const { feedback } = await api('GET', '/api/feedback');
-      feedbackHas = feedback.length > 0;
       refreshMe().catch(() => {});
-      const reader = user.feedbackReader;
       const row = (f) => `<button type="button" data-thread="${f.id}" class="${f.unread ? 'unread' : ''}">
           <span>${f.unread ? '● ' : ''}${esc(f.message.length > 90 ? f.message.slice(0, 90) + '…' : f.message)}</span>
-          <span class="meta">${KIND_NAMES[f.kind] || f.kind}${reader ? ' · from ' + esc(f.from) : ''} · ${f.replies} repl${f.replies === 1 ? 'y' : 'ies'} · ${esc(whenText(f.updatedAt))}${f.status === 'open' ? '' : ' · closed'}</span>
+          <span class="meta">${KIND_NAMES[f.kind] || f.kind} · from ${esc(f.from)} · ${f.replies} repl${f.replies === 1 ? 'y' : 'ies'} · ${esc(whenText(f.updatedAt))}${f.status === 'open' ? '' : ' · closed'}</span>
         </button>`;
       const el = open(
         `<h2>Feedback</h2>
-        <p class="hint">${reader ? 'Open requests from everyone. Open one to reply or close it.' : 'Your conversations with the developer. Open one to read or reply, or start a new request.'}</p>
+        <p class="hint">Open requests from everyone. Open one to reply or close it.</p>
         <div class="threadlist">${feedback.length ? feedback.map(row).join('') : '<span class="hint">Nothing open.</span>'}</div>
-        <div class="row"><button type="button" data-act="close">Close</button>${reader ? '' : '<button type="button" class="primary" data-act="new">New request</button>'}</div>`,
+        <div class="row"><button type="button" class="primary" data-act="close">Close</button></div>`,
       );
       $('[data-act=close]', el).onclick = close;
-      if (!reader) $('[data-act=new]', el).onclick = feedbackView;
       el.querySelectorAll('[data-thread]').forEach((b) => (b.onclick = () => chatView(Number(b.dataset.thread))));
     } catch (err) {
       ctx.toast(err.message);
@@ -590,14 +587,14 @@ export async function initAccount(ctx) {
   function feedbackView() {
     const el = open(`
       <h2>Request a feature or report an error</h2>
-      <p class="hint">Tell the developer what you would like, or what went wrong. It becomes a chat: you can reply to each other until it is closed.</p>
+      <p class="hint">Tell the developer what you would like, or what went wrong. It becomes a chat: you can reply to each other until it is closed. You can have one at a time.</p>
       <form id="feedbackForm">
         <label>What is it? <select name="kind"><option value="feature">I want a new feature</option><option value="error">Something is broken</option></select></label>
         <label>Details <textarea name="message" rows="5" maxlength="1000" required></textarea></label>
         <p class="error" id="feedbackError" hidden></p>
         <div class="row"><button type="button" data-act="back">Cancel</button><button type="submit" class="primary">Send</button></div>
       </form>`);
-    $('[data-act=back]', el).onclick = feedbackHas ? feedbackListView : close;
+    $('[data-act=back]', el).onclick = close;
     $('#feedbackForm', el).onsubmit = async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
@@ -629,11 +626,11 @@ export async function initAccount(ctx) {
       <div class="chatlog" id="chatLog"></div>
       ${
         closed
-          ? '<p class="hint">This conversation is closed.</p>'
+          ? `<p class="hint">This conversation is closed.${user.feedbackReader ? '' : ' You can start a new request.'}</p>`
           : `<form id="chatForm" class="chatform"><textarea name="message" rows="2" maxlength="1000" placeholder="Write a message (Enter sends, Shift+Enter for a new line)" required></textarea><button type="submit" class="primary">Send</button></form>
              <p class="error" id="chatError" hidden></p>`
       }
-      <div class="row"><button type="button" data-act="back">Back</button>${closed ? '' : '<button type="button" data-act="done">Close conversation</button>'}</div>`,
+      <div class="row"><button type="button" data-act="back">${user.feedbackReader ? 'Back' : 'Hide'}</button>${closed && !user.feedbackReader ? '<button type="button" class="primary" data-act="again">New request</button>' : ''}${closed ? '' : '<button type="button" data-act="done">Close conversation</button>'}</div>`,
     );
     const log = $('#chatLog', el);
     let shown = -1;
@@ -645,7 +642,8 @@ export async function initAccount(ctx) {
       if (atEnd) log.scrollTop = log.scrollHeight;
     };
     draw(thread);
-    $('[data-act=back]', el).onclick = feedbackListView;
+    $('[data-act=back]', el).onclick = user.feedbackReader ? feedbackListView : close;
+    if ($('[data-act=again]', el)) $('[data-act=again]', el).onclick = feedbackView;
     if (closed) return;
     const reload = async () => {
       const t = await api('GET', `/api/feedback/${id}`);

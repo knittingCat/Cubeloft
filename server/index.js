@@ -590,6 +590,9 @@ export function createApp() {
     const message = String(req.body.message || '').trim().slice(0, 1000);
     if (!['feature', 'error'].includes(kind)) return bad(res, 400, 'Choose feature request or error.');
     if (!message) return bad(res, 400, 'Please write a few words.');
+    // one conversation at a time: finish (close) the open one before starting another
+    const open = await query(`SELECT id FROM ${T.feedback} WHERE user_id = $1 AND status = 'open' LIMIT 1`, [req.user.id]);
+    if (open.rows[0]) return bad(res, 409, 'You already have an open conversation. Close it before starting a new one.', { id: open.rows[0].id });
     const { rows } = await query(`INSERT INTO ${T.feedback} (kind, message, user_id) VALUES ($1,$2,$3) RETURNING id`, [kind, message, req.user.id]);
     res.json({ ok: true, id: rows[0].id });
   }));
