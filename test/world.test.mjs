@@ -356,6 +356,41 @@ await test('symmetric building repeats cells across the middle, without duplicat
   for (const [x, , z] of symmetricCells([[0, 0, 0], [7, 0, 7]], 'xz', 8)) assert.ok(x >= 0 && x < 8 && z >= 0 && z < 8);
 });
 
+await test('light: sky light falls down open columns, a closed room is dark inside, a window lets some in, glow lights a room', async () => {
+  const { computeLight, faceLevels, brightness } = await import('../src/light.js');
+  const passes = (id) => id === 0 || id === 15; // 15 = glass
+  const emit = (id) => (id === 16 ? 12 : 0); // 16 = glowstone
+  const w = new World(12);
+  // an open field: everything above the floor is full sky light
+  w.setMany([[5, 0, 5, 1]]);
+  let L = computeLight(w, passes, emit);
+  assert.equal(L[w.index(5, 1, 5)], 15);
+  assert.equal(faceLevels(w, L, passes, 5, 0, 5)[2], 15); // the top of the floor block looks at full light
+  // a closed 3x3 room (walls at x,z = 3..5, hollow centre at 4,1,4) with a roof
+  const room = [];
+  for (let x = 3; x <= 5; x++) for (let z = 3; z <= 5; z++) for (let y = 0; y <= 2; y++) if (!(x === 4 && z === 4 && y === 1)) room.push([x, y, z, 2]);
+  const closed = new World(12);
+  closed.setMany(room);
+  L = computeLight(closed, passes, emit);
+  assert.equal(L[closed.index(4, 1, 4)], 0); // inside: no light at all
+  assert.equal(faceLevels(closed, L, passes, 4, 0, 4)[2], 0); // the floor under it looks into the dark
+  assert.equal(faceLevels(closed, L, passes, 4, 2, 4)[2], 15); // the outside of the roof looks at the sky
+  assert.ok(brightness(0) < 0.2 && brightness(15) === 1);
+  // swap one wall block for glass: light gets in and fades with distance
+  const win = new World(12);
+  win.setMany(room.filter(([x, y, z]) => !(x === 3 && y === 1 && z === 4)));
+  win.setMany([[3, 1, 4, 15]]);
+  L = computeLight(win, passes, emit);
+  assert.equal(L[win.index(3, 1, 4)], 14); // the glass cell is lit from outside (14: one step from the open cell beside it)
+  assert.equal(L[win.index(4, 1, 4)], 13);
+  // a glowstone inside lights its room even with no window
+  const lamp = new World(12);
+  lamp.setMany(room);
+  lamp.setMany([[4, 0, 4, 16]]);
+  L = computeLight(lamp, passes, emit);
+  assert.equal(L[lamp.index(4, 1, 4)], 11);
+});
+
 await test('mirror tool: the line is chosen from the pointed cell and the copy lands flush or further out, never overlapping', async () => {
   const { mirrorLineFor, mirrorBox, mirrorPlacement } = await import('../src/clipboard.js');
   const w = new World(16);

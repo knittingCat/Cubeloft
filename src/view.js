@@ -3,6 +3,7 @@ import { OrbitControls } from '../vendor/OrbitControls.js';
 import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
 import { textureCanvas, doorCanvas } from './textures.js';
 import { DOOR_THICKNESS } from './world.js';
+import { computeLight, faceLevels, brightness } from './light.js';
 
 const DOOR_OPEN_ANGLE = -Math.PI / 2; // hinge turn of a fully open door
 const WALK_SPEED = 1.4; // cells per second (about a person's walking pace: the figure is ~1.5 cells tall)
@@ -231,11 +232,9 @@ export class DioramaView {
     this.scene.background = tex;
     this.hemi.color.set(s.hemiSky);
     this.hemi.groundColor.set(s.hemiGround);
-    this.hemiBase = s.hemi;
-    this.hemi.intensity = s.hemi * (this.indoor ?? 1);
+    this.hemi.intensity = s.hemi;
     this.sun.color.set(s.sun);
-    this.sunBase = s.sunI;
-    this.sun.intensity = s.sunI * (this.indoor ?? 1);
+    this.sun.intensity = s.sunI;
     const k = this.world.size;
     this.sun.position.set(s.sunPos[0] * k, s.sunPos[1] * k, s.sunPos[2] * k);
     this.stars.visible = s.stars;
@@ -350,6 +349,19 @@ export class DioramaView {
     const tex = typeof block.tex === 'string' ? { top: block.tex, side: block.tex, bottom: block.tex } : block.tex;
     const make = (name) => {
       const m = new THREE.MeshLambertMaterial({ map: this.texture(name) });
+      // each block face is lit by the cell it looks into (see light.js): two per-instance vec3s hold the six face brightnesses
+      m.customProgramCacheKey = () => 'faceLight';
+      m.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nattribute vec3 lightA;\nattribute vec3 lightB;\nvarying float vFaceLight;')
+          .replace(
+            '#include <begin_vertex>',
+            '#include <begin_vertex>\nvFaceLight = normal.x > 0.5 ? lightA.x : normal.x < -0.5 ? lightA.y : normal.y > 0.5 ? lightA.z : normal.y < -0.5 ? lightB.x : normal.z > 0.5 ? lightB.y : lightB.z;',
+          );
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\nvarying float vFaceLight;')
+          .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= vFaceLight;');
+      };
       if (block.alpha) {
         m.transparent = true;
         m.opacity = block.alpha;
@@ -368,6 +380,34 @@ export class DioramaView {
     const mats = [side, side, make(tex.top), make(tex.bottom), side, side];
     this.materials.set(block.id, mats);
     return mats;
+  }
+
+  // A copy of the cube geometry with the per-instance face light attributes (all full bright until updateLighting fills them in).
+  lightGeometry(capacity) {
+    const geo = this.geometry.clone();
+    for (const name of ['lightA', 'lightB']) geo.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3));
+    return geo;
+  }
+
+  // Work out the light for the whole world and give every block instance its six face brightnesses.
+  updateLighting() {
+    const w = this.world;
+    const passes = (id) => id === 0 || !!BLOCK_BY_ID.get(id)?.alpha;
+    const emit = (id) => Math.round((BLOCK_BY_ID.get(id)?.glow || 0) * 15);
+    const levels = computeLight(w, passes, emit);
+    for (const { mesh, cellIdx } of this.typeMeshes.values()) {
+      if (!cellIdx) continue;
+      const a = mesh.geometry.getAttribute('lightA');
+      const b = mesh.geometry.getAttribute('lightB');
+      for (let k = 0; k < cellIdx.length; k++) {
+        const [x, y, z] = w.coords(cellIdx[k]);
+        const f = faceLevels(w, levels, passes, x, y, z).map(brightness);
+        a.setXYZ(k, f[0], f[1], f[2]);
+        b.setXYZ(k, f[3], f[4], f[5]);
+      }
+      a.needsUpdate = b.needsUpdate = true;
+    }
+    this.dirty = true;
   }
 
   // ----- voxel meshes -----
@@ -394,10 +434,11 @@ export class DioramaView {
       if (!entry || entry.capacity < idx.length) {
         if (entry) {
           this.scene.remove(entry.mesh);
+          entry.mesh.geometry.dispose();
           entry.mesh.dispose();
         }
         const capacity = Math.max(256, 2 ** Math.ceil(Math.log2(Math.max(idx.length, 1))));
-        const mesh = new THREE.InstancedMesh(this.geometry, this.blockMaterials(block), capacity);
+        const mesh = new THREE.InstancedMesh(this.lightGeometry(capacity), this.blockMaterials(block), capacity);
         mesh.frustumCulled = false;
         mesh.castShadow = !block.alpha && !block.glow; // glowing blocks are light sources: no dark shadow under them
         mesh.receiveShadow = true;
@@ -412,9 +453,11 @@ export class DioramaView {
         m.setPosition(x + 0.5 - off, y + 0.5, z + 0.5 - offZ);
         entry.mesh.setMatrixAt(k, m);
       }
+      entry.cellIdx = idx;
       entry.mesh.count = idx.length;
       entry.mesh.instanceMatrix.needsUpdate = true;
     }
+    this.updateLighting(); // a new roof or wall changes the light on blocks of every other type too
     if (this.glowKinds && (types.has(16) || types.has(10) || !this.glowBuilt)) {
       this.glowBuilt = true;
       this.rebuildGlow();
@@ -466,11 +509,12 @@ export class DioramaView {
       if (!entry || entry.capacity < list.length) {
         if (entry) {
           this.scene.remove(entry.mesh);
+          entry.mesh.geometry.dispose();
           entry.mesh.dispose();
         }
         const capacity = Math.max(256, 2 ** Math.ceil(Math.log2(Math.max(list.length, 1))));
         const block = BLOCK_BY_ID.get(id);
-        const mesh = new THREE.InstancedMesh(this.geometry, this.blockMaterials(block), capacity);
+        const mesh = new THREE.InstancedMesh(this.lightGeometry(capacity), this.blockMaterials(block), capacity); // flowing water and lava stay fully bright
         mesh.frustumCulled = false;
         mesh.castShadow = !block.alpha && !block.glow; // glowing blocks are light sources: no dark shadow under them
         mesh.receiveShadow = true;
@@ -1147,33 +1191,6 @@ export class DioramaView {
     if (onEnd) onEnd(finished);
   }
 
-  // Standing or flying under a roof: the sky light has no idea about roofs and lights every upward face (a grass floor in a closed
-  // room) at full strength, so ease it down while a solid block is overhead. The sun's own shadow already darkens covered ground.
-  updateIndoorLight() {
-    let target = 1;
-    if (this.looking || this.flying) {
-      const p = this.camera.position;
-      const x = Math.floor(p.x + this.offset);
-      const z = Math.floor(p.z + this.offsetZ);
-      if (this.world.inBounds(x, 0, z)) {
-        for (let y = Math.floor(p.y) + 1; y < this.world.height; y++) {
-          const id = this.world.get(x, y, z);
-          if (id && !BLOCK_BY_ID.get(id)?.alpha) {
-            target = 0.1; // the screen brightens dark values a lot (sRGB), so 30% still looked bright on a grass floor
-            break;
-          }
-        }
-      }
-    }
-    const cur = this.indoor ?? 1;
-    const next = Math.abs(cur - target) < 0.01 ? target : cur + (target - cur) * 0.08;
-    if (next === cur) return;
-    this.indoor = next;
-    this.hemi.intensity = (this.hemiBase ?? 1) * next;
-    this.sun.intensity = (this.sunBase ?? this.sun.intensity) * next; // the sun too: gaps and glass let some through that the shadows do not stop
-    this.dirty = true;
-  }
-
   // Is the person you are looking through being moved by the animation right now?
   following() {
     return !!(this.looking && this.anim && this.anim.plan.people.has(this.looking.id));
@@ -1673,7 +1690,6 @@ export class DioramaView {
     if (this.flowWaiting) this.updateFlowReveal();
     if (this.flying) this.updateFly();
     if (this.anim) this.updateAnimation();
-    this.updateIndoorLight();
     let eased = false;
     if (this.zoomGoal != null && !this.looking && !this.flying) {
       const off = this.camera.position.clone().sub(t);
