@@ -356,6 +356,32 @@ await test('symmetric building repeats cells across the middle, without duplicat
   for (const [x, , z] of symmetricCells([[0, 0, 0], [7, 0, 7]], 'xz', 8)) assert.ok(x >= 0 && x < 8 && z >= 0 && z < 8);
 });
 
+await test('mirror tool: the line is chosen from the pointed cell and the copy lands flush or further out, never overlapping', async () => {
+  const { mirrorLineFor, mirrorBox, mirrorPlacement } = await import('../src/clipboard.js');
+  const w = new World(16);
+  w.setMany([[2, 0, 2, 1], [3, 1, 2, 2]]);
+  w.addLabel(2, 1, 3, 'hi');
+  const a = [2, 0, 2];
+  const b = [3, 1, 3];
+  const clip = extract(w, a, b);
+  // pointing at the cell just right of the area: line on its left edge, copy flush against the area
+  assert.deepEqual(mirrorLineFor(a, b, [4, 0, 2]), { axis: 'x', boundary: 4, k: 7 });
+  let p = mirrorPlacement(w, clip, [2, 0, 2], mirrorLineFor(a, b, [4, 0, 2]));
+  assert.deepEqual(p.cells.sort(), [[4, 1, 2, 2], [5, 0, 2, 1]]);
+  assert.deepEqual(p.labels, [{ x: 5, y: 1, z: 3, text: 'hi' }]);
+  // to the left: the line sits on the right edge of the pointed cell
+  assert.deepEqual(mirrorLineFor(a, b, [0, 0, 3]), { axis: 'x', boundary: 1, k: 1 });
+  // beyond in z more than x picks the z axis
+  assert.equal(mirrorLineFor(a, b, [3, 0, 9]).axis, 'z');
+  // inside the area: its nearest side
+  assert.deepEqual(mirrorLineFor(a, b, [2, 0, 2]), { axis: 'x', boundary: 2, k: 3 });
+  assert.deepEqual(mirrorBox(a, b, mirrorLineFor(a, b, [4, 0, 2])), [[5, 0, 2], [4, 1, 3]]);
+  // a copy that would leave the world is dropped and counted
+  p = mirrorPlacement(w, clip, [2, 0, 2], mirrorLineFor(a, b, [12, 0, 2]));
+  assert.equal(p.cells.length, 0);
+  assert.equal(p.dropped, 3);
+});
+
 await test('mirrorX flips left-right, twice is the original, size unchanged', () => {
   const w = new World(16);
   w.setMany([[0, 0, 0, 1], [3, 1, 2, 2]]);

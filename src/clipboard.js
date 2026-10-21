@@ -50,6 +50,62 @@ export function mirrorX(clip) {
   };
 }
 
+// The Mirror tool: reflect an area across a vertical line. The line runs along cell edges, between cells
+// boundary-1 and boundary on one axis, so a cell at v lands at k - v where k = 2 * boundary - 1.
+// Pointing outside the area puts the line on the edge of the pointed cell nearest the area; pointing
+// inside it uses the nearest side of the area. Either way the line is never inside the area, so the copy never overlaps it.
+export function mirrorLineFor(a, b, cell) {
+  const { min, max } = normalizeBox(a, b);
+  const beyond = (v, lo, hi) => (v > hi ? v - hi : v < lo ? lo - v : 0);
+  const dx = beyond(cell[0], min[0], max[0]);
+  const dz = beyond(cell[2], min[2], max[2]);
+  let axis;
+  let boundary;
+  if (dx || dz) {
+    axis = dx >= dz ? 'x' : 'z';
+    const i = axis === 'x' ? 0 : 2;
+    boundary = cell[i] > max[i] ? cell[i] : cell[i] + 1;
+  } else {
+    const sides = [
+      ['x', min[0], cell[0] - min[0]],
+      ['x', max[0] + 1, max[0] - cell[0]],
+      ['z', min[2], cell[2] - min[2]],
+      ['z', max[2] + 1, max[2] - cell[2]],
+    ].sort((p, q) => p[2] - q[2]);
+    [axis, boundary] = sides[0];
+  }
+  return { axis, boundary, k: 2 * boundary - 1 };
+}
+
+// The reflected corner pair of an area, for showing where the copy will land.
+export function mirrorBox(a, b, line) {
+  const flip = (c) => (line.axis === 'x' ? [line.k - c[0], c[1], c[2]] : [c[0], c[1], line.k - c[2]]);
+  return [flip(a), flip(b)];
+}
+
+// The blocks and signs of `clip` (extracted from the area whose lowest corner is `origin`), reflected across `line`.
+// `dropped` counts the ones that would land outside the world.
+export function mirrorPlacement(world, clip, origin, line) {
+  const flip = (x, z) => (line.axis === 'x' ? [line.k - x, z] : [x, line.k - z]);
+  const inside = (x, y, z) => x >= 0 && y >= 0 && z >= 0 && x < world.sx && y < world.height && z < world.sz;
+  let dropped = 0;
+  const cells = [];
+  for (const [dx, dy, dz, id] of clip.cells) {
+    const y = origin[1] + dy;
+    const [x, z] = flip(origin[0] + dx, origin[2] + dz);
+    if (inside(x, y, z)) cells.push([x, y, z, id]);
+    else dropped++;
+  }
+  const labels = [];
+  for (const l of clip.labels) {
+    const y = origin[1] + l.dy;
+    const [x, z] = flip(origin[0] + l.dx, origin[2] + l.dz);
+    if (inside(x, y, z)) labels.push({ x, y, z, text: l.text });
+    else dropped++;
+  }
+  return { cells, labels, dropped };
+}
+
 // Where the clip's corner goes when the user points at a cell: centre it on the cell, bottom layer at that height.
 export function originFor(clip, cell) {
   return [cell[0] - Math.floor(clip.w / 2), cell[1], cell[2] - Math.floor(clip.d / 2)];

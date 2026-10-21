@@ -1355,6 +1355,18 @@ export class DioramaView {
     this.planeZ.position.set(0, tall / 2, 0);
   }
 
+  // The Mirror tool's chosen line: a vertical plane on the cell edge `boundary` (axis 'x' or 'z'); null puts the symmetry planes back.
+  showMirrorLine(axis, boundary) {
+    if (!axis) return this.showSymmetry(this.symMode || 'off');
+    this.dirty = true;
+    const tall = 14;
+    const plane = axis === 'x' ? this.planeX : this.planeZ;
+    this.planeX.visible = this.planeZ.visible = false;
+    plane.visible = true;
+    plane.scale.set(axis === 'x' ? this.world.sz : this.world.sx, tall, 1);
+    plane.position.set(axis === 'x' ? boundary - this.offset : 0, tall / 2, axis === 'z' ? boundary - this.offsetZ : 0);
+  }
+
   // Preview of the mirrored copies of the cell under the pointer.
   showMirrorGhosts(cells, { color = 0xffffff, opacity = 0.35, scale = 1.002 } = {}) {
     this.dirty = true;

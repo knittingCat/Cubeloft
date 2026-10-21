@@ -45,7 +45,8 @@ Live site: https://cubeloft.onrender.com
 | Remove a block | Right-click, or Shift+click, or the Erase tool |
 | Tools | `B` build, `E` erase, `X` box, `S` select, `I` pick, `T` sign, `H` person |
 | Blocks | `1` to `9` pick the first nine blocks |
-| Copy and paste | Select an area (it copies), then `V` to paste, `Q` rotate, `M` mirror |
+| Copy and paste | Select an area (it copies), then `V` to paste, `Q` rotate |
+| Mirror | `M`, choose an area, then click where the mirror line goes |
 | Symmetry | `Y` cycles off, left-right, front-back, both |
 | Undo and redo | Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z |
 

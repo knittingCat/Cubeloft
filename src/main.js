@@ -5,7 +5,7 @@ import { DioramaView } from './view.js';
 import { initAccount } from './account.js';
 import { api } from './api.js';
 import { createLive } from './live.js';
-import { extract, rotate90, mirrorX, originFor, placement, symmetricCells } from './clipboard.js';
+import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, placement, symmetricCells } from './clipboard.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -122,7 +122,9 @@ let selected = 1;
 let boxA = null;
 let sharedMode = false;
 let hoverInfo = null;
-let selA = null; // first corner of a selection in progress
+let selA = null; // first corner of a selection in progress (also used by the Mirror tool)
+let mirrorSel = null; // Mirror tool: the chosen area { a, b, clip, origin }, waiting for the mirror line
+const AREA_TOOLS = ['box', 'select', 'paste', 'mirror']; // tools where clicks mark corners or places, not blocks
 let selection = null; // { a, b } finished selection
 let clip = null; // copied blocks (kept when you open another diorama)
 let lastTapKey = null; // touch: first tap previews the paste, second tap places it
@@ -201,10 +203,17 @@ function selectBlock(id) {
 }
 
 function setTool(t) {
+  const was = tool;
   tool = t;
   boxA = null;
   selA = null;
   lastTapKey = null;
+  if (mirrorSel || was === 'mirror') {
+    mirrorSel = null;
+    view?.showMirrorLine(null);
+    if (t !== 'mirror') selection ? view?.showSelection(selection.a, selection.b) : view?.showSelection(null); // give the Select tool's outline back
+  }
+  if (t === 'mirror') view?.showSelection(null);
   view?.showRegion(null, null);
   if (t !== 'paste') view?.showFootprint(null);
   $('#pasteBar').hidden = t !== 'paste';
@@ -237,8 +246,9 @@ function saveSuffix() {
 }
 
 function updateStatus() {
-  const names = { build: 'Build', erase: 'Erase', box: 'Box fill', pick: 'Pick', label: 'Sign', select: 'Select', paste: 'Paste', person: 'Person', door: 'Door' };
+  const names = { build: 'Build', erase: 'Erase', box: 'Box fill', pick: 'Pick', label: 'Sign', select: 'Select', paste: 'Paste', mirror: 'Mirror', person: 'Person', door: 'Door' };
   let hint = tool === 'box' ? (boxA ? ' — click the opposite corner' : ' — click a first corner') : '';
+  if (tool === 'mirror') hint = mirrorSel ? ' — click where the mirror line should go (beside the area; the blue line shows it)' : selA ? ' — click the opposite corner of the area' : ' — click one corner of the area to mirror';
   if (tool === 'select') hint = selA ? ' — click the opposite corner' : selection ? ' — copied — press Paste' : ' — click one corner of the area';
   if (tool === 'person') hint = ' — click to put a person here, or click one to change their outfit';
   if (tool === 'door') hint = ' — click to place a door (it takes the planks colour you have selected), click one to open or close it, R turns it, Shift+R flips it to the other side';
@@ -526,7 +536,7 @@ function refreshHover(e) {
     return;
   }
   // pointing at a door (clicking it opens, turns or removes it): no block footprint
-  if (!['box', 'select', 'paste'].includes(tool) && view.doorAt(ray) != null) {
+  if (!AREA_TOOLS.includes(tool) && view.doorAt(ray) != null) {
     view.showGhost(null);
     return;
   }
@@ -546,6 +556,22 @@ function refreshHover(e) {
     const corner = hit.cell || hit.prev;
     view.showGhost(corner, { color: 0x4dd0e1, opacity: 0.3, scale: 1.03 });
     if (selA && corner) view.showRegion(selA, corner);
+    return;
+  }
+  if (tool === 'mirror') {
+    const corner = hit.cell || hit.prev;
+    view.showGhost(corner, { color: 0x4dd0e1, opacity: 0.3, scale: 1.03 });
+    if (!mirrorSel) {
+      if (selA && corner) view.showRegion(selA, corner);
+      return;
+    }
+    // choosing the line: show it, where the copy will land, and the copy itself (unless it is huge)
+    const line = mirrorLineFor(mirrorSel.a, mirrorSel.b, corner);
+    view.showMirrorLine(line.axis, line.boundary);
+    const [ra, rb] = mirrorBox(mirrorSel.a, mirrorSel.b, line);
+    view.showRegion(ra, rb);
+    const p = mirrorPlacement(world, mirrorSel.clip, mirrorSel.origin, line);
+    if (p.cells.length <= 400) view.showMirrorGhosts(p.cells, { color: 0x4dd0e1, opacity: 0.35 });
     return;
   }
   if (tool === 'door') {
@@ -798,7 +824,7 @@ async function actAt(e, button) {
   const erasing = tool === 'erase' || button === 2 || e.shiftKey;
   // doors: click one with any tool (except the area tools) to open / close it; with the Door tool and a different
   // planks colour selected it is repainted instead; Erase removes it
-  if (!['box', 'select', 'paste'].includes(tool)) {
+  if (!AREA_TOOLS.includes(tool)) {
     const doorId = view.doorAt(ray);
     if (doorId != null) {
       const door = world.getDoor(doorId);
@@ -810,12 +836,12 @@ async function actAt(e, button) {
   }
   // a person is edited when you click them, or the cell their feet or head are in (even if that is a block's face)
   const personId = view.personAt(ray) ?? (erasing ? null : personAtCells(hit));
-  if (personId != null && !['box', 'select', 'paste'].includes(tool)) {
+  if (personId != null && !AREA_TOOLS.includes(tool)) {
     if (erasing) world.removePerson(personId);
     else openPersonDialog(personId);
     return;
   }
-  if (erasing && !['box', 'select', 'paste'].includes(tool)) {
+  if (erasing && !AREA_TOOLS.includes(tool)) {
     const labelId = view.labelAt(ray);
     if (labelId != null) {
       world.removeLabel(labelId);
@@ -857,6 +883,34 @@ async function actAt(e, button) {
       copySelection(`Selected ${w}×${h}×${d}`); // selecting copies automatically
     }
     updateStatus();
+    return;
+  }
+  if (tool === 'mirror') {
+    const corner = hit.cell || hit.prev;
+    if (!corner) return;
+    if (!mirrorSel) {
+      if (!selA) {
+        selA = corner;
+      } else {
+        const { min } = normalizeBox(selA, corner);
+        mirrorSel = { a: selA, b: corner, clip: extract(world, selA, corner), origin: min };
+        selA = null;
+        view.showRegion(null, null);
+        view.showSelection(mirrorSel.a, mirrorSel.b);
+      }
+      updateStatus();
+      refreshHover();
+      return;
+    }
+    const line = mirrorLineFor(mirrorSel.a, mirrorSel.b, corner);
+    const p = mirrorPlacement(world, mirrorSel.clip, mirrorSel.origin, line);
+    if (!p.cells.length && !p.labels.length) {
+      toast(p.dropped ? 'That copy would fall outside the diorama — choose a line closer to the area.' : 'There is nothing in that area to mirror.');
+      return;
+    }
+    world.setManyWithLabels(p.cells, p.labels);
+    toast(`Mirrored ${p.cells.length} blocks${p.dropped ? ` (${p.dropped} fell outside the diorama)` : ''}. Choose another area, or press Esc.`);
+    setTool('mirror'); // back to choosing an area
     return;
   }
   if (tool === 'paste') {
@@ -936,7 +990,7 @@ function placeAtPointer(e) {
 
 // R: turn the door under the pointer a quarter turn; Shift+R: flip it to the opposite edge of its block.
 function turnDoorAtPointer(quarters = 1) {
-  if (!hoverInfo || isViewOnly() || view.looking || ['box', 'select', 'paste'].includes(tool)) return;
+  if (!hoverInfo || isViewOnly() || view.looking || AREA_TOOLS.includes(tool)) return;
   const id = view.doorAt(currentHit(hoverInfo).ray);
   if (id != null) world.changeDoor(id, { rot: world.getDoor(id).rot + quarters });
 }
@@ -1155,7 +1209,6 @@ function wireUI() {
   );
   $('#copyBtn').addEventListener('click', copySelection);
   $('#rotateBtn').addEventListener('click', rotateClip);
-  $('#mirrorBtn').addEventListener('click', mirrorClip);
   $('#symBtn').addEventListener('click', cycleSymmetry);
   $('#mirrorBtn2').addEventListener('click', mirrorClip);
   $('#cancelPasteBtn').addEventListener('click', () => setTool('build'));
@@ -1349,7 +1402,7 @@ function wireUI() {
     else if (key === 'd') setTool('door');
     else if (key === 'r') turnDoorAtPointer(e.shiftKey ? 2 : 1);
     else if (key === 'q') rotateClip();
-    else if (key === 'm') mirrorClip();
+    else if (key === 'm') setTool('mirror');
     else if (key === 'y') cycleSymmetry();
     else if (key === 'i') setTool('pick');
     else if (key === 't') setTool('label');
@@ -1359,7 +1412,7 @@ function wireUI() {
       selection = null;
       view.showRegion(null, null);
       view.showSelection(null);
-      if (tool === 'paste' || tool === 'select') setTool('build');
+      if (tool === 'paste' || tool === 'select' || tool === 'mirror') setTool('build');
       updateStatus();
     }
   });
