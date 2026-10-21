@@ -678,7 +678,7 @@ function toggleAnimBar(show = !animOpen()) {
   if (show) {
     if (!view.looking) setTool('build');
     renderAnimSteps();
-    setAnimMode(null, 'Start as a person to look through their eyes and move yourself, or pick Walk, Turn or Door and click what should move. Steps play one after another.');
+    setAnimMode(null, 'Start as a person to see it through their eyes, or pick Walk, Turn or Door and click what should move. Steps play one after another.');
   }
   refreshHover();
 }
@@ -738,9 +738,11 @@ function animClick(e, button) {
 // onDone: called when it ends or is stopped. Returns whether it started.
 function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playingâ€¦') {
   if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.'), false;
+  const lookText = $('#lookHelp').textContent; // the person bar's usual key help, put back when the animation ends
   const started = view.playAnimation(
     world.animation,
     () => {
+      $('#lookHelp').textContent = lookText;
       $('#animPlay').hidden = false;
       $('#animRecord').hidden = false;
       $('#animStop').hidden = true;
@@ -751,6 +753,7 @@ function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playingâ€
   );
   if (!started) return quiet || toast('Nothing to play: the people or doors in the steps are gone.'), false;
   setAnimMode(null, hint);
+  if (view.following()) $('#lookHelp').textContent = 'The animation is walking you around. Drag to look around. Stop to take over with the arrow keys.';
   $('#animPlay').hidden = true;
   $('#animRecord').hidden = true;
   $('#animStop').hidden = false;
