@@ -521,7 +521,7 @@ function refreshHover(e) {
   view.showMirrorGhosts([]);
   if (animOpen()) {
     // no building while animating; show the destination a walking person would go to
-    if (animMode === 'walkDest' && hit?.prev && !view.animating) view.showGhost(hit.prev, { color: 0xfbbf24, opacity: 0.3 });
+    if ((animMode === 'walkDest' || animMode === 'turnDest') && hit?.prev && !view.animating) view.showGhost(hit.prev, { color: 0xfbbf24, opacity: 0.3 });
     else view.showGhost(null);
     return;
   }
@@ -595,7 +595,7 @@ function toggleFly() {
 }
 
 // ---------- animation: people walk, doors swing, then play it back ----------
-let animMode = null; // null, or what the next click does: 'walkPerson' (pick who), 'walkDest' (pick where), 'door'
+let animMode = null; // null, or what the next click does: 'walkPerson' (pick who), 'walkDest' (pick where), 'turnPerson', 'turnDest', 'door'
 let animPerson = null; // the person waiting for a destination
 const animOpen = () => !$('#animBar').hidden;
 
@@ -606,6 +606,7 @@ function personLabel(id) {
 
 function stepText(s) {
   if (s.type === 'walk') return `${personLabel(s.person)} walks to ${s.x}, ${s.z}`;
+  if (s.type === 'turn') return `${personLabel(s.person)} turns to face ${s.x}, ${s.z}`;
   if (s.type === 'door') {
     const d = world.getDoor(s.door);
     return d ? `Door at ${d.x}, ${d.z} ${s.open ? 'opens' : 'closes'}` : 'A door that is gone';
@@ -651,7 +652,7 @@ function toggleAnimBar(show = !animOpen()) {
   if (show) {
     if (!view.looking) setTool('build');
     renderAnimSteps();
-    setAnimMode(null, world.animation.length ? '' : 'Pick Walk or Door, then click what should move. Steps play one after another.');
+    setAnimMode(null, world.animation.length ? '' : 'Pick Walk, Turn or Door, then click what should move. Steps play one after another.');
   }
   refreshHover();
 }
@@ -684,6 +685,15 @@ function animClick(e, button) {
     if (!hit || !hit.prev || !world.getPerson(animPerson)) return;
     addAnimStep({ type: 'walk', person: animPerson, x: hit.prev[0], y: hit.prev[1], z: hit.prev[2] });
     setAnimMode(null, 'Added. Press Play to watch, or add more steps.');
+  } else if (animMode === 'turnPerson') {
+    const id = view.personAt(ray) ?? personAtCells(hit);
+    if (id == null) return toast('Click a person.');
+    animPerson = id;
+    setAnimMode('turnDest', `Click the spot ${personLabel(id)} should turn to face (right-click to cancel).`);
+  } else if (animMode === 'turnDest') {
+    if (!hit || !hit.prev || !world.getPerson(animPerson)) return;
+    addAnimStep({ type: 'turn', person: animPerson, x: hit.prev[0], z: hit.prev[2] });
+    setAnimMode(null, 'Added. Press Play to watch, or add more steps.');
   } else if (animMode === 'door') {
     const id = view.doorAt(ray);
     if (id == null) return toast('Click a door.');
@@ -693,7 +703,7 @@ function animClick(e, button) {
 }
 
 function playAnimation() {
-  if (!world.animation.length) return toast('Add some steps first: Walk or Door.');
+  if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.');
   const started = view.playAnimation(world.animation, () => {
     $('#animPlay').hidden = false;
     $('#animStop').hidden = true;
@@ -1227,6 +1237,10 @@ function wireUI() {
   $('#animWalk').onclick = () => {
     if (view.looking) return toast('Finish looking through the person to add a Walk step. Play and Wait still work.');
     if (!view.animating) setAnimMode('walkPerson', 'Click the person who should walk.');
+  };
+  $('#animTurn').onclick = () => {
+    if (view.looking) return toast('Finish looking through the person to add a Turn step. Play and Wait still work.');
+    if (!view.animating) setAnimMode('turnPerson', 'Click the person who should turn.');
   };
   $('#animDoor').onclick = () => {
     if (view.looking) return toast('Finish looking through the person to add a Door step. Play and Wait still work.');

@@ -63,6 +63,7 @@ export function cleanDoor(d) {
 }
 // ---- animation: a short list of steps played one after another (or together with the one before) ----
 //   { type: 'walk', person: id, x, y, z }   the person walks to that cell
+//   { type: 'turn', person: id, x, z }      the person turns on the spot to face that cell
 //   { type: 'door', door: id, open: bool }  the door swings open or shut
 //   { type: 'wait', seconds }               a pause
 // Each step may have `together: true` to start at the same moment as the step before it. Stored in meta.animation.
@@ -76,6 +77,9 @@ export function cleanAnimation(list) {
     if (s.type === 'walk') {
       if (!Number.isInteger(s.person) || ![s.x, s.y, s.z].every(Number.isInteger)) continue;
       Object.assign(step, { person: s.person, x: s.x, y: s.y, z: s.z });
+    } else if (s.type === 'turn') {
+      if (!Number.isInteger(s.person) || ![s.x, s.z].every(Number.isInteger)) continue;
+      Object.assign(step, { person: s.person, x: s.x, z: s.z });
     } else if (s.type === 'door') {
       if (!Number.isInteger(s.door)) continue;
       Object.assign(step, { door: s.door, open: s.open === true });

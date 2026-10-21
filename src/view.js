@@ -991,6 +991,19 @@ export class DioramaView {
         dur = TURN_TIME + walkT;
         rec.segs.push({ t0: start, t1: start + dur, walkT, L, from: { x: rec.at.x, y: rec.at.y, z: rec.at.z }, to, heading, faceFrom: rec.at.facing });
         rec.at = { ...to, facing: heading };
+      } else if (s.type === 'turn') {
+        const p = world.getPerson(s.person);
+        if (!p) continue;
+        if (!people.has(p.id)) {
+          const at = { x: p.x + 0.5, y: p.y, z: p.z + 0.5, facing: ((p.rot * 3 + p.twist) * Math.PI) / 6 };
+          people.set(p.id, { start: { ...at }, segs: [], at });
+        }
+        const rec = people.get(p.id);
+        if (Math.hypot(s.x + 0.5 - rec.at.x, s.z + 0.5 - rec.at.z) < 0.01) continue; // already standing there
+        const heading = Math.atan2(s.x + 0.5 - rec.at.x, s.z + 0.5 - rec.at.z);
+        dur = TURN_TIME;
+        rec.segs.push({ t0: start, t1: start + dur, walkT: 0, L: 0, from: { x: rec.at.x, y: rec.at.y, z: rec.at.z }, to: { x: rec.at.x, y: rec.at.y, z: rec.at.z }, heading, faceFrom: rec.at.facing });
+        rec.at = { ...rec.at, facing: heading };
       } else if (s.type === 'door') {
         const d = world.getDoor(s.door);
         if (!d) continue;

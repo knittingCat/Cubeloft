@@ -497,6 +497,11 @@ await test('animation: steps are cleaned, saved with the scene, and the ledge po
   assert.equal(w.animation[3].open, false);
   const back = await decodeWorld(await encodeWorld(w));
   assert.deepEqual(back.animation, w.animation);
+  w.setAnimation([
+    { type: 'turn', person: a.id, x: 4, z: 2, y: 9 },
+    { type: 'turn', person: a.id, x: 'left', z: 2 }, // invalid: dropped
+  ]);
+  assert.deepEqual(w.animation, [{ type: 'turn', person: a.id, x: 4, z: 2 }]);
   w.setAnimation([]);
   assert.equal(w.animation.length, 0);
   assert.equal('animation' in w.meta, false);
