@@ -231,7 +231,8 @@ export class DioramaView {
     this.scene.background = tex;
     this.hemi.color.set(s.hemiSky);
     this.hemi.groundColor.set(s.hemiGround);
-    this.hemi.intensity = s.hemi;
+    this.hemiBase = s.hemi;
+    this.hemi.intensity = s.hemi * (this.indoor ?? 1);
     this.sun.color.set(s.sun);
     this.sun.intensity = s.sunI;
     const k = this.world.size;
@@ -1145,6 +1146,32 @@ export class DioramaView {
     if (onEnd) onEnd(finished);
   }
 
+  // Standing or flying under a roof: the sky light has no idea about roofs and lights every upward face (a grass floor in a closed
+  // room) at full strength, so ease it down while a solid block is overhead. The sun's own shadow already darkens covered ground.
+  updateIndoorLight() {
+    let target = 1;
+    if (this.looking || this.flying) {
+      const p = this.camera.position;
+      const x = Math.floor(p.x + this.offset);
+      const z = Math.floor(p.z + this.offsetZ);
+      if (this.world.inBounds(x, 0, z)) {
+        for (let y = Math.floor(p.y) + 1; y < this.world.height; y++) {
+          const id = this.world.get(x, y, z);
+          if (id && !BLOCK_BY_ID.get(id)?.alpha) {
+            target = 0.3;
+            break;
+          }
+        }
+      }
+    }
+    const cur = this.indoor ?? 1;
+    const next = Math.abs(cur - target) < 0.01 ? target : cur + (target - cur) * 0.08;
+    if (next === cur) return;
+    this.indoor = next;
+    this.hemi.intensity = (this.hemiBase ?? 1) * next;
+    this.dirty = true;
+  }
+
   // Is the person you are looking through being moved by the animation right now?
   following() {
     return !!(this.looking && this.anim && this.anim.plan.people.has(this.looking.id));
@@ -1644,6 +1671,7 @@ export class DioramaView {
     if (this.flowWaiting) this.updateFlowReveal();
     if (this.flying) this.updateFly();
     if (this.anim) this.updateAnimation();
+    this.updateIndoorLight();
     let eased = false;
     if (this.zoomGoal != null && !this.looking && !this.flying) {
       const off = this.camera.position.clone().sub(t);
