@@ -4,7 +4,7 @@ import pg from 'pg';
 // TABLE_PREFIX lets the automated tests use their own throw-away tables in the same database.
 export const PREFIX = process.env.TABLE_PREFIX || '';
 const t = (name) => `${PREFIX}${name}`;
-export const T = { users: t('users'), sessions: t('sessions'), dioramas: t('dioramas'), unlocks: t('unlocks'), reports: t('reports'), classes: t('classes'), members: t('class_members'), feedback: t('feedback') };
+export const T = { users: t('users'), sessions: t('sessions'), dioramas: t('dioramas'), unlocks: t('unlocks'), reports: t('reports'), classes: t('classes'), members: t('class_members'), feedback: t('feedback'), feedbackMessages: t('feedback_messages') };
 
 function connectionString() {
   const raw = process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL;
@@ -111,6 +111,18 @@ export async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       handled_at TIMESTAMPTZ
     );
+    -- each request is a chat: the first message is feedback.message, the replies (from either side) live here until it is closed
+    ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS user_unread BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS admin_unread BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    CREATE TABLE IF NOT EXISTS ${T.feedbackMessages} (
+      id SERIAL PRIMARY KEY,
+      feedback_id INTEGER NOT NULL REFERENCES ${T.feedback}(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES ${T.users}(id) ON DELETE SET NULL,
+      from_dev BOOLEAN NOT NULL DEFAULT FALSE,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   // Case-insensitive uniqueness ("Ann" and "ann" are the same person). Not fatal if old data already clashes.
@@ -123,5 +135,5 @@ export async function initDb() {
 
 export async function dropAll() {
   if (!PREFIX) throw new Error('refusing to drop tables without TABLE_PREFIX');
-  await query(`DROP TABLE IF EXISTS ${T.feedback}, ${T.reports}, ${T.unlocks}, ${T.members}, ${T.dioramas}, ${T.classes}, ${T.sessions}, ${T.users} CASCADE`);
+  await query(`DROP TABLE IF EXISTS ${T.feedbackMessages}, ${T.feedback}, ${T.reports}, ${T.unlocks}, ${T.members}, ${T.dioramas}, ${T.classes}, ${T.sessions}, ${T.users} CASCADE`);
 }

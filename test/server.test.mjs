@@ -328,15 +328,45 @@ try {
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: '  ' })).status, 400);
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'feature', message: 'Add doors' })).status, 200);
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: 'Save failed' })).status, 200);
-    assert.equal((await ben.call('GET', '/api/feedback')).status, 403);
+    assert.equal((await ben.call('GET', '/api/feedback')).json.feedback.length, 2); // everyone sees their own requests
+    assert.equal((await ann.call('GET', '/api/feedback')).json.feedback.length, 0); // but not other people's
     const dee = new Client();
     assert.equal((await dee.call('POST', '/api/login', { username: 'dee_admin', password: 'longenough4' })).status, 200);
     const list = await dee.call('GET', '/api/feedback');
     assert.equal(list.json.feedback.length, 2);
     assert.deepEqual(list.json.feedback.map((f) => f.kind), ['feature', 'error']);
-    assert.equal((await ben.call('POST', `/api/feedback/${list.json.feedback[0].id}/done`)).status, 403);
+    assert.equal((await ann.call('POST', `/api/feedback/${list.json.feedback[0].id}/done`)).status, 404); // a stranger cannot even see it
     assert.equal((await dee.call('POST', `/api/feedback/${list.json.feedback[0].id}/done`)).status, 200);
     assert.equal((await dee.call('GET', '/api/feedback')).json.feedback.length, 1);
+  });
+
+  await test('feedback chat: sender and admins reply to each other until it is closed; unread counts follow', async () => {
+    const mine = (await ben.call('GET', '/api/feedback')).json.feedback;
+    const id = mine.find((f) => f.status === 'open').id;
+    const closed = mine.find((f) => f.status === 'done');
+    assert.equal(closed.unread, true); // an admin closing it is news for the sender
+    await ben.call('GET', `/api/feedback/${closed.id}`);
+    const dee = new Client();
+    assert.equal((await dee.call('POST', '/api/login', { username: 'dee_admin', password: 'longenough4' })).status, 200);
+    assert.equal((await ann.call('GET', `/api/feedback/${id}`)).status, 404);
+    assert.equal((await ann.call('POST', `/api/feedback/${id}/messages`, { message: 'hi' })).status, 404);
+    assert.equal((await ben.call('POST', `/api/feedback/${id}/messages`, { message: '  ' })).status, 400);
+    assert.equal((await dee.call('GET', '/api/me')).json.user.feedbackUnread, 1); // the new request waits for the admin
+    assert.equal((await dee.call('GET', `/api/feedback/${id}`)).status, 200);
+    assert.equal((await dee.call('GET', '/api/me')).json.user.feedbackUnread, 0); // reading it clears that
+    assert.equal((await dee.call('POST', `/api/feedback/${id}/messages`, { message: 'Which save failed?' })).status, 200);
+    assert.equal((await ben.call('GET', '/api/me')).json.user.feedbackUnread, 1); // the sender has a reply
+    const chat = (await ben.call('GET', `/api/feedback/${id}`)).json;
+    assert.deepEqual(chat.messages.map((m) => [m.text, m.mine, m.fromDev]), [['Save failed', true, false], ['Which save failed?', false, true]]);
+    assert.equal((await ben.call('GET', '/api/me')).json.user.feedbackUnread, 0);
+    assert.equal((await ben.call('POST', `/api/feedback/${id}/messages`, { message: 'The gallery one' })).status, 200);
+    assert.equal((await dee.call('GET', '/api/me')).json.user.feedbackUnread, 1);
+    const seen = (await dee.call('GET', `/api/feedback/${id}`)).json;
+    assert.deepEqual(seen.messages.map((m) => [m.mine, m.fromDev]), [[false, false], [true, true], [false, false]]); // from the admin's side
+    assert.equal((await ben.call('POST', `/api/feedback/${id}/done`)).status, 200); // the sender closes it
+    assert.equal((await dee.call('POST', `/api/feedback/${id}/messages`, { message: 'late' })).status, 409); // closed: no more replies
+    assert.equal((await ben.call('GET', '/api/feedback')).json.feedback.find((f) => f.id === id).status, 'done');
+    assert.equal((await dee.call('GET', '/api/feedback')).json.feedback.some((f) => f.id === id), false);
   });
 
   await test('class galleries: create, join with the code, share to a class, members only, teacher reviews and takes down', async () => {
