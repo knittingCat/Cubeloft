@@ -655,7 +655,9 @@ function renderAnimSteps() {
       del.title = 'Remove this step';
       del.setAttribute('aria-label', 'Remove this step');
       del.onclick = () => {
-        if (!view.animating) world.setAnimation(world.animation.filter((_, k) => k !== i));
+        if (view.animating) return;
+        view.clearHold(); // the finished pose of the last step goes away with the steps
+        world.setAnimation(world.animation.filter((_, k) => k !== i));
       };
       li.append(text, del);
       return li;
@@ -689,7 +691,7 @@ function addAnimStep(step) {
   if ($('#animTogether').checked && steps.length) step.together = true;
   steps.push(step);
   world.setAnimation(steps);
-  if (step.type !== 'wait') playAnimation(steps.length - 1, true); // show the new step right away, in real time
+  if (step.type !== 'wait') playAnimation(steps.length - 1, true, null, 'Playing…', true); // show the new step right away, in real time; it stays where it ended
 }
 
 // Is the door open once every step so far has played? (so a new Door step flips it to the other state)
@@ -736,7 +738,7 @@ function animClick(e, button) {
 
 // from: index of the step to start at (a just-added step plays by itself, from where the steps before it end)
 // onDone: called when it ends or is stopped. Returns whether it started.
-function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing…') {
+function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing…', hold = false) {
   if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.'), false;
   const lookText = $('#lookHelp').textContent; // the person bar's usual key help, put back when the animation ends
   const started = view.playAnimation(
@@ -750,6 +752,7 @@ function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing�
       onDone?.();
     },
     from,
+    hold,
   );
   if (!started) return quiet || toast('Nothing to play: the people or doors in the steps are gone.'), false;
   setAnimMode(null, hint);

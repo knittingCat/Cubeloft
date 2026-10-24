@@ -1134,8 +1134,11 @@ export class DioramaView {
 
   // Start playing steps; onEnd(finished) is called when it ends or is stopped. Returns false if nothing to play.
   // `from` is the index of the step to start at: everything before it is already done (people and doors stand where they ended).
-  playAnimation(steps, onEnd, from = 0) {
+  // With `hold`, a run that ends by itself leaves everyone and every door in their finished pose (a step you just added
+  // stays on screen) until the next play, Stop, or edit of the diorama.
+  playAnimation(steps, onEnd, from = 0, hold = false) {
     if (this.anim) this.stopAnimation(false);
+    this.clearHold();
     const plan = this.planAnimation(steps);
     if (!plan) return false;
     // Looking through a person: if the steps move them, you ride along (the camera follows their animated walk and turns);
@@ -1143,7 +1146,7 @@ export class DioramaView {
     if (this.looking && this.looking.pose !== 'standing') plan.people.delete(this.looking.id);
     const skip = plan.stepStart[from] ?? 0;
     if (skip >= plan.total) return false; // the step turned out to do nothing
-    this.anim = { plan, t0: performance.now() - skip * 1000, onEnd };
+    this.anim = { plan, t0: performance.now() - skip * 1000, onEnd, hold };
     return true;
   }
 
@@ -1154,14 +1157,37 @@ export class DioramaView {
     for (const [id, rec] of plan.doors) this.poseAnimatedDoor(id, rec, t);
     if (this.following()) this.followCamera();
     this.dirty = true;
-    if (t > plan.total + 0.3) this.stopAnimation(true);
+    if (t <= plan.total + 0.3) return;
+    if (this.anim.hold && !this.following()) this.holdAnimation();
+    else this.stopAnimation(true);
+  }
+
+  // The run is over: stop moving things but leave them in their finished pose (see playAnimation's `hold`).
+  holdAnimation() {
+    const { plan, onEnd } = this.anim;
+    this.anim = null;
+    this.held = plan;
+    if (onEnd) onEnd(true);
+  }
+
+  // Put back whatever a held (finished) run left on screen.
+  clearHold() {
+    if (!this.held) return;
+    const plan = this.held;
+    this.held = null;
+    this.restoreFigures(plan);
   }
 
   // Stop and put every figure and door back as the diorama really has them.
   stopAnimation(finished = false) {
-    if (!this.anim) return;
+    if (!this.anim) return this.clearHold();
     const { plan, onEnd } = this.anim;
     this.anim = null;
+    this.restoreFigures(plan);
+    if (onEnd) onEnd(finished);
+  }
+
+  restoreFigures(plan) {
     for (const id of plan.people.keys()) {
       const entry = this.personGroups.get(id);
       if (entry) {
@@ -1188,7 +1214,6 @@ export class DioramaView {
       }
       this.applyLook();
     }
-    if (onEnd) onEnd(finished);
   }
 
   // Is the person you are looking through being moved by the animation right now?
@@ -1219,8 +1244,10 @@ export class DioramaView {
   // Arrow keys walk, Shift+arrows spin (left/right) and lay down / get up (up/down), dragging turns the head.
   // Nothing is written to the person until exitPerson() hands back the final state.
   enterPerson(p) {
+    if (this.looking || this.flying || this.anim) return false;
+    this.clearHold();
     const entry = this.personGroups.get(p.id);
-    if (!entry || this.looking || this.flying || this.anim) return false;
+    if (!entry) return false;
     this.saved = { pos: this.camera.position.clone(), target: this.controls.target.clone(), fov: this.camera.fov };
     this.looking = {
       id: p.id,

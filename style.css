@@ -46,6 +46,26 @@ dialog img { width: 100%; border-radius: 10px; border: 1px solid var(--line); ba
 .hint { color: var(--muted); font-size: .86rem; margin: .3rem 0; }
 .help { padding-left: 1.1rem; margin: .4rem 0; display: grid; gap: .35rem; }
 
+/* Tablet and up: one toolbar row, never a lone second row (an iPad is just too narrow for the roomy spacing). Tighter
+   spacing first; if it still does not fit, the bar scrolls sideways. */
+@media (min-width: 761px) {
+  #top { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  #top::-webkit-scrollbar { display: none; }
+  #top > * { flex: none; }
+  .group { flex-wrap: nowrap; }
+}
+@media (min-width: 761px) and (max-width: 1400px) {
+  #top { gap: .4rem; padding: .5rem .5rem; }
+  .group { gap: .2rem; }
+  #top button { padding: .4rem .3rem; }
+  .brand { font-size: 1rem; margin-right: 0; }
+}
+@media (min-width: 761px) and (max-width: 1250px) {
+  .brandname { display: none; }
+  #top button { padding: .4rem .25rem; }
+  #top button svg { width: 18px; height: 18px; }
+}
+
 @media (max-width: 760px) {
   #top .brand { width: 100%; }
   #status { bottom: 5.4rem; }
