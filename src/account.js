@@ -1,4 +1,4 @@
-import { api, accountsAvailable } from './api.js';
+import { api, accountsAvailable, embedded, maxosSignIn, endSession } from './api.js';
 import { encodeWorld } from './world.js';
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -37,6 +37,7 @@ export async function initAccount(ctx) {
     accountBtn.setAttribute('aria-label', user ? `Account: ${user.username}` : 'Sign in');
     accountBtn.title = user ? 'Your dioramas and settings' : 'Sign in or create an account';
   }
+  if (embedded) await maxosSignIn(); // inside the maxos window you are signed in with your maxos account
   await refreshMe();
   // keep the Reports button honest without a page refresh when you come back to the tab (no timer, so the database can still sleep)
   const recheck = () => user && !document.hidden && refreshMe().catch(() => {});
@@ -61,6 +62,15 @@ export async function initAccount(ctx) {
 
   // ---------- sign in / create account ----------
   function authView({ mode = 'login', message = '', after = null, skippable = false } = {}) {
+    if (embedded) {
+      // cookies are blocked in the maxos window, so there is no separate sign-in here
+      const el = open(`
+        <div class="authbrand">🧱 Cubeloft</div>
+        <p>Cubeloft uses your maxos account. Sign in to maxos, then close and reopen this window.</p>
+        <div class="row"><button type="button" class="primary" data-act="close">OK</button></div>`);
+      $('[data-act=close]', el).onclick = close;
+      return;
+    }
     const signup = mode === 'signup';
     const el = open(`
       <div class="authbrand">🧱 Cubeloft</div>
@@ -304,8 +314,9 @@ export async function initAccount(ctx) {
           }),
       );
       $('[data-act=close]', el).onclick = close;
+      if (embedded) $('[data-act=signout]', el).hidden = true; // signing out happens in maxos
       $('[data-act=signout]', el).onclick = async () => {
-        await api('POST', '/api/logout', {});
+        await endSession();
         await refreshMe();
         ctx.setCloud(null);
         ctx.onSignedOut && ctx.onSignedOut(); // your diorama must not stay on screen

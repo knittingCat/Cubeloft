@@ -37,6 +37,10 @@ export async function initDb() {
       gallery_code_hash TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    -- people who arrive through the maxos window: linked by their maxos username, and they have no Cubeloft password
+    ALTER TABLE ${T.users} ADD COLUMN IF NOT EXISTS maxos_name TEXT;
+    ALTER TABLE ${T.users} ALTER COLUMN password_hash DROP NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS ${T.users}_maxos_name ON ${T.users}(maxos_name) WHERE maxos_name IS NOT NULL;
     CREATE TABLE IF NOT EXISTS ${T.sessions} (
       token_hash TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES ${T.users}(id) ON DELETE CASCADE,

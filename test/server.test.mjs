@@ -2,6 +2,17 @@
 process.env.TABLE_PREFIX = 'zz_test_';
 process.env.FEEDBACK_READER = 'dee_admin'; // stands in for the Claude account
 import assert from 'node:assert/strict';
+import http from 'node:http';
+
+// A stand-in for maxos: answers /api/auth/me for a few made-up tokens.
+const maxosStub = http.createServer((req, res) => {
+  const t = (req.headers.authorization || '').split(' ')[1] || '';
+  const who = { 'aaa.bbb.ann': { username: 'ann' }, 'aaa.bbb.zed': { username: 'Zed.Q' }, 'aaa.bbb.unverified': { username: 'newbie', mustVerifyEmail: true } }[t];
+  res.writeHead(who ? 200 : 401, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(who || { error: 'Invalid or expired token' }));
+});
+await new Promise((r) => maxosStub.listen(0, '127.0.0.1', r));
+process.env.MAXOS_ORIGIN = `http://127.0.0.1:${maxosStub.address().port}`;
 
 const { createApp } = await import('../server/index.js');
 const { initDb, dropAll, query, T, pool } = await import('../server/db.js');
@@ -526,6 +537,46 @@ try {
     await ann.call('DELETE', `/api/classes/${cls.id}`);
   });
 
+  await test('maxos sign-in: the token is checked with maxos, accounts are linked, no cookie and no password', async () => {
+    const call = async (method, path, body, token) => {
+      const headers = { 'content-type': 'application/json', 'x-requested-with': 'blockscape' };
+      if (token) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(base + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      return { status: res.status, json: await res.json().catch(() => null), cookie: res.headers.get('set-cookie') };
+    };
+    // the page may be framed by maxos only
+    const home = await fetch(base + '/');
+    assert.match(home.headers.get('content-security-policy'), new RegExp(`frame-ancestors ${process.env.MAXOS_ORIGIN.replace(/[.]/g, '\\.')}(;|$)`));
+    assert.equal(home.headers.get('x-frame-options'), null);
+    // bad tokens
+    assert.equal((await call('POST', '/api/sso/maxos', { token: 'not a token' })).status, 400);
+    assert.equal((await call('POST', '/api/sso/maxos', { token: 'aaa.bbb.expired' })).status, 401);
+    assert.equal((await call('POST', '/api/sso/maxos', { token: 'aaa.bbb.unverified' })).status, 403);
+    // 'ann' already exists here as a different person, so the maxos 'ann' gets a different Cubeloft name and a separate account
+    const first = await call('POST', '/api/sso/maxos', { token: 'aaa.bbb.ann' });
+    assert.equal(first.status, 200);
+    assert.equal(first.cookie, null);
+    assert.match(first.json.token, /^[0-9a-f]{64}$/);
+    assert.equal(first.json.user.username, 'ann_2');
+    assert.equal(first.json.user.isAdmin, false);
+    // the same maxos person comes back to the same account
+    const again = await call('POST', '/api/sso/maxos', { token: 'aaa.bbb.ann' });
+    assert.equal(again.json.user.id, first.json.user.id);
+    // odd characters in the maxos name become underscores
+    const zed = await call('POST', '/api/sso/maxos', { token: 'aaa.bbb.zed' });
+    assert.equal(zed.json.user.username, 'Zed_Q');
+    // the session token works as a bearer token, and logs out
+    const me = await call('GET', '/api/me', undefined, first.json.token);
+    assert.equal(me.json.user.username, 'ann_2');
+    assert.equal((await call('GET', '/api/me')).json.user, null);
+    // no Cubeloft password exists for these accounts
+    assert.equal((await new Client().call('POST', '/api/login', { username: 'ann_2', password: '' })).status, 401);
+    await call('POST', '/api/logout', {}, first.json.token);
+    assert.equal((await call('GET', '/api/me', undefined, first.json.token)).json.user, null);
+    // and a made-up bearer token is just nobody
+    assert.equal((await call('GET', '/api/me', undefined, 'f'.repeat(64))).json.user, null);
+  });
+
   await test('brute-force protection on login', async () => {
     const attacker = new Client();
     let last;
@@ -533,6 +584,7 @@ try {
     assert.equal(last.status, 429);
   });
 } finally {
+  maxosStub.close();
   server.close();
   await dropAll();
   await pool.end();

@@ -1,4 +1,5 @@
 import { cleanPerson, cleanDoor } from './world.js';
+import { getSessionToken } from './api.js';
 
 // Live editing in the browser: while a class diorama is open for editing, every change is sent to the server,
 // which passes it on to everyone else editing the same diorama, and theirs arrive here.
@@ -96,7 +97,8 @@ export function createLive({ getWorld, encode, onPeers, onState, onLost }) {
     clearTimeout(retryTimer);
     const id = wantId;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const sock = new WebSocket(`${proto}//${location.host}/ws?d=${id}`);
+    const token = getSessionToken(); // only inside the maxos window, where cookies are blocked
+    const sock = new WebSocket(`${proto}//${location.host}/ws?d=${id}${token ? `&token=${token}` : ''}`);
     ws = sock;
     dirty = false;
     gotState = false;

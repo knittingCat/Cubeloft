@@ -11,6 +11,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const COOKIE = 'bs_session';
 const SESSION_DAYS = 30;
 const MAX_DIORAMAS_PER_USER = 50;
+// maxos: its window may embed this site, and its accounts may sign in here (the token is checked against maxos itself)
+const MAXOS_ORIGIN = (process.env.MAXOS_ORIGIN || 'https://maxos-1oe3.onrender.com').replace(/\/+$/, '');
 
 const bad = (res, status, error, extra = {}) => res.status(status).json({ error, ...extra });
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
@@ -49,7 +51,7 @@ function buildCsp() {
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${MAXOS_ORIGIN}`, // only the maxos window may show this site in a frame
   ].join('; ');
 }
 
@@ -81,8 +83,23 @@ async function countFeedbackUnread(user) {
   return rows[0].n;
 }
 
+// The session token comes from the cookie, or (inside the maxos window, where cookies are blocked) from an
+// Authorization: Bearer header, or from ?token= on the live-editing socket.
+function sessionToken(req) {
+  const cookie = readCookie(req, COOKIE);
+  if (cookie) return cookie;
+  const bearer = /^Bearer ([0-9a-f]{64})$/.exec(req.headers.authorization || '');
+  if (bearer) return bearer[1];
+  try {
+    const url = new URL(req.url, 'http://x');
+    const t = url.pathname === '/ws' ? url.searchParams.get('token') : null;
+    if (t && /^[0-9a-f]{64}$/.test(t)) return t;
+  } catch {}
+  return null;
+}
+
 async function userFromRequest(req) {
-  const token = readCookie(req, COOKIE);
+  const token = sessionToken(req);
   if (!token) return null;
   const { rows } = await query(
     `SELECT u.* FROM ${T.sessions} s JOIN ${T.users} u ON u.id = s.user_id WHERE s.token_hash = $1 AND s.expires_at > NOW()`,
@@ -109,7 +126,7 @@ export function createApp() {
     res.setHeader('Content-Security-Policy', csp);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('X-Frame-Options', 'DENY');
+    // no X-Frame-Options: it cannot name an allowed site, and the CSP frame-ancestors above does the job
     next();
   });
   app.use(express.json({ limit: '400kb' }));
@@ -135,10 +152,26 @@ export function createApp() {
   }));
   const needUser = (req, res, next) => (req.user ? next() : bad(res, 401, 'Please sign in first.'));
 
-  async function startSession(req, res, userId) {
+  async function issueSession(userId) {
     const token = newToken();
     await query(`INSERT INTO ${T.sessions} (token_hash, user_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '${SESSION_DAYS} days')`, [sha256(token), userId]);
-    setSessionCookie(req, res, token, SESSION_DAYS * 86400);
+    return token;
+  }
+  async function startSession(req, res, userId) {
+    setSessionCookie(req, res, await issueSession(userId), SESSION_DAYS * 86400);
+  }
+
+  // A Cubeloft username for a maxos name: letters, numbers and underscores, and never one that is already someone else's.
+  async function freeUsername(maxosName) {
+    let base = maxosName.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 20).padEnd(3, '_');
+    if (checkUsername(base)) base = `mx_${base}`.slice(0, 20);
+    for (let n = 1; n < 200; n++) {
+      const suffix = n === 1 ? '' : `_${n}`;
+      const name = base.slice(0, 20 - suffix.length) + suffix;
+      if (checkUsername(name)) continue;
+      if ((await query(`SELECT 1 FROM ${T.users} WHERE LOWER(username) = LOWER($1)`, [name])).rowCount === 0) return name;
+    }
+    throw new Error('no free username');
   }
 
   // --- accounts ---
@@ -175,8 +208,39 @@ export function createApp() {
     res.json({ user: publicUser(user) });
   }));
 
+  // Sign in with a maxos account. The embedded page hands over the person's maxos token; we ask maxos who it belongs to
+  // (so there is no shared secret), then link or create a Cubeloft account for that maxos name. These accounts have no
+  // Cubeloft password and are never admins. The session token goes back in the body, because the maxos window blocks cookies.
+  app.post('/api/sso/maxos', rateLimiter({ windowMs: 600e3, max: 150 }), wrap(async (req, res) => {
+    const maxosToken = req.body.token;
+    if (typeof maxosToken !== 'string' || maxosToken.length > 3000 || !/^[\w-]+\.[\w-]+\.[\w-]+$/.test(maxosToken)) return bad(res, 400, 'That sign-in did not work.');
+    let who;
+    try {
+      const r = await fetch(`${MAXOS_ORIGIN}/api/auth/me`, { headers: { authorization: `Bearer ${maxosToken}` }, signal: AbortSignal.timeout(10000) });
+      if (r.status === 401 || r.status === 403) return bad(res, 401, 'Your maxos sign-in has expired. Sign in to maxos again.');
+      if (!r.ok) throw new Error(`maxos answered ${r.status}`);
+      who = await r.json();
+    } catch (e) {
+      console.error('[sso]', e.message);
+      return bad(res, 502, 'Could not reach maxos to check your sign-in. Try again in a moment.');
+    }
+    const maxosName = typeof who?.username === 'string' ? who.username.trim().toLowerCase() : '';
+    if (!maxosName || maxosName.length > 100 || who.mustVerifyEmail === true) return bad(res, 403, 'Verify your maxos account first, then open Cubeloft again.');
+    let user = (await query(`SELECT * FROM ${T.users} WHERE maxos_name = $1`, [maxosName])).rows[0];
+    for (let attempt = 0; !user && attempt < 3; attempt++) {
+      try {
+        user = (await query(`INSERT INTO ${T.users} (username, password_hash, maxos_name) VALUES ($1, NULL, $2) RETURNING *`, [await freeUsername(who.username.trim()), maxosName])).rows[0];
+      } catch (e) {
+        if (e.code !== '23505') throw e;
+        user = (await query(`SELECT * FROM ${T.users} WHERE maxos_name = $1`, [maxosName])).rows[0]; // someone else's name was taken in the meantime, or a parallel sign-in won: look again, else retry
+      }
+    }
+    if (!user) return bad(res, 500, 'Could not set up your account. Try again.');
+    res.json({ token: await issueSession(user.id), user: publicUser(user) });
+  }));
+
   app.post('/api/logout', wrap(async (req, res) => {
-    const token = readCookie(req, COOKIE);
+    const token = sessionToken(req);
     if (token) await query(`DELETE FROM ${T.sessions} WHERE token_hash = $1`, [sha256(token)]);
     setSessionCookie(req, res, '', 0);
     res.json({ ok: true });
