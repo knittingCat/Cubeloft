@@ -392,6 +392,80 @@ await test('light: sky light falls down open columns, a closed room is dark insi
   assert.equal(L[lamp.index(4, 1, 4)], 11);
 });
 
+await test('lights: lamps and switches are cleaned, placed on a side, flipped by number, undone, saved and cleared', async () => {
+  const { cleanLight, lampLit } = await import('../src/world.js');
+  const { computeLight } = await import('../src/light.js');
+  // cleaning
+  assert.deepEqual(cleanLight({ kind: 'lamp', x: 1, y: 2, z: 3, mode: 'bogus', at: 9, group: 12 }), { kind: 'lamp', at: 3, group: 1, mode: 'on', times: [], x: 1, y: 2, z: 3 });
+  assert.deepEqual(cleanLight({ kind: 'lamp', x: 0, y: 0, z: 0, mode: 'time', times: ['night', 'x', 'day'] }).times, ['day', 'night']);
+  assert.deepEqual(cleanLight({ kind: 'lamp', x: 0, y: 0, z: 0, mode: 'time' }).times, ['night']); // a timed lamp always has a time
+  assert.deepEqual(cleanLight({ kind: 'switch', x: 0, y: 0, z: 0, group: 4, on: true, mode: 'time' }), { kind: 'switch', at: 3, group: 4, on: true, x: 0, y: 0, z: 0 });
+  // placing: a free cell with something to hold it on that side (the floor holds the bottom side only)
+  const w = new World(12);
+  w.setMany([[5, 0, 5, 1], [5, 1, 5, 1]]);
+  assert.equal(w.canPlaceLight(2, 0, 2, 3), true); // stands on the floor
+  assert.equal(w.canPlaceLight(2, 0, 2, 0), false); // nothing to its east
+  assert.equal(w.canPlaceLight(4, 1, 5, 0), true); // stuck to the block on its east side
+  assert.equal(w.canPlaceLight(5, 1, 5, 3), false); // the cell is a block
+  const sw = w.addLight({ kind: 'switch', x: 4, y: 1, z: 5, at: 0, group: 2 });
+  assert.equal(w.canPlaceLight(4, 1, 5, 0), false); // one object per cell and side
+  const lamp = w.addLight({ kind: 'lamp', x: 2, y: 0, z: 2, at: 3, mode: 'switch', group: 2 });
+  const late = w.addLight({ kind: 'lamp', x: 3, y: 0, z: 3, at: 3, mode: 'time', times: ['night'] });
+  const always = w.addLight({ kind: 'lamp', x: 6, y: 0, z: 6, at: 3 });
+  // which lamps are lit
+  const lit = (sky) => w.lights.filter((l) => lampLit(l, sky, (g) => w.groupOn(g))).map((l) => l.id).sort();
+  assert.deepEqual(lit('day'), [always.id]);
+  assert.deepEqual(lit('night'), [late.id, always.id].sort());
+  // flipping a number flips every switch with it (one undo step); a number with no switch does nothing
+  const sw2 = w.addLight({ kind: 'switch', x: 7, y: 0, z: 7, at: 3, group: 2 });
+  assert.equal(w.setGroup(2), true);
+  assert.equal(w.groupOn(2) && w.getLight(sw.id).on && w.getLight(sw2.id).on, true);
+  assert.deepEqual(lit('day'), [lamp.id, always.id].sort());
+  assert.equal(w.setGroup(7), null);
+  const steps = w.undoStack.length;
+  assert.equal(w.setGroup(2), false);
+  assert.equal(w.undoStack.length, steps + 1);
+  w.undo();
+  assert.equal(w.groupOn(2), true);
+  w.redo();
+  assert.equal(w.groupOn(2), false);
+  // editing a lamp is one undo step
+  w.changeLight(lamp.id, { mode: 'on' });
+  assert.equal(w.getLight(lamp.id).mode, 'on');
+  w.undo();
+  assert.equal(w.getLight(lamp.id).mode, 'switch');
+  // a lit lamp lights a closed room, with no window
+  const room = [];
+  for (let x = 3; x <= 5; x++) for (let z = 3; z <= 5; z++) for (let y = 0; y <= 2; y++) if (!(x === 4 && z === 4 && y === 1)) room.push([x, y, z, 2]);
+  const closed = new World(12);
+  closed.setMany(room);
+  const passes = (id) => id === 0;
+  assert.equal(computeLight(closed, passes, () => 0)[closed.index(4, 1, 4)], 0);
+  assert.equal(computeLight(closed, passes, () => 0, [[4, 1, 4, 14]])[closed.index(4, 1, 4)], 14);
+  assert.equal(computeLight(closed, passes, () => 0, [[3, 1, 3, 14]])[closed.index(3, 1, 3)], 0); // a lamp inside a block lights nothing
+  // saved with the scene and loaded back; scenes without lights stay as they were
+  const back = await decodeWorld(await encodeWorld(w));
+  assert.deepEqual(back.lights, w.lights);
+  assert.equal(back.nextLightId, w.nextLightId);
+  assert.equal(new TextDecoder().decode(new World(12).toBytes()).includes('"lights"'), false);
+  assert.equal(new TextDecoder().decode(w.toBytes()).includes('"lights"'), true);
+  // removing, and clearing an area as one undo step (the starting scene's lights are kept)
+  assert.equal(w.removeLight(late.id), true);
+  w.undo();
+  assert.ok(w.getLight(late.id));
+  w.markStart();
+  const extra = w.addLight({ kind: 'lamp', x: 8, y: 0, z: 8, at: 3 });
+  const r = w.clearRegion([0, 0, 0], [11, 31, 11], { keepLight: (l) => w.isStartLight(l) });
+  assert.equal(r.lights, 1);
+  assert.equal(w.getLight(extra.id), null);
+  assert.ok(w.getLight(lamp.id));
+  w.undo();
+  assert.ok(w.getLight(extra.id));
+  // animation steps for switches are cleaned
+  w.setAnimation([{ type: 'light', group: 2, on: true }, { type: 'light', group: 0, on: true }, { type: 'light', group: 'a' }]);
+  assert.deepEqual(w.animation, [{ type: 'light', group: 2, on: true }]);
+});
+
 await test('mirror tool: the line is chosen from the pointed cell and the copy lands flush or further out, never overlapping', async () => {
   const { mirrorLineFor, mirrorBox, mirrorPlacement } = await import('../src/clipboard.js');
   const w = new World(16);
@@ -463,7 +537,7 @@ await test('clearRegion deletes blocks and signs inside only, in one undo step',
   w.addLabel(9, 0, 9, 'outside');
   const before = w.count();
   const r = w.clearRegion([4, 2, 4], [1, 0, 1]); // corners in any order
-  assert.deepEqual(r, { blocks: 4 * 3 * 4, labels: 0, people: 0, doors: 0 }); // the sign at y=3 is above the box
+  assert.deepEqual(r, { blocks: 4 * 3 * 4, labels: 0, people: 0, doors: 0, lights: 0 }); // the sign at y=3 is above the box
   assert.equal(w.count(), before - 48);
   assert.equal(w.get(0, 0, 0), 3); // outside the box is untouched
   const r2 = w.clearRegion([0, 0, 0], [5, 3, 5]);
@@ -475,7 +549,7 @@ await test('clearRegion deletes blocks and signs inside only, in one undo step',
   assert.equal(w.count(), before - 48);
   assert.ok(w.redo());
   assert.equal(w.count(), 0);
-  assert.deepEqual(w.clearRegion([0, 0, 0], [5, 3, 5]), { blocks: 0, labels: 0, people: 0, doors: 0 }); // nothing left: no history entry
+  assert.deepEqual(w.clearRegion([0, 0, 0], [5, 3, 5]), { blocks: 0, labels: 0, people: 0, doors: 0, lights: 0 }); // nothing left: no history entry
   const steps = w.undoStack.length;
   w.clearRegion([0, 0, 0], [1, 1, 1]);
   assert.equal(w.undoStack.length, steps);

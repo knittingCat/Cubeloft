@@ -8,12 +8,14 @@ export const SKY_LEVEL = 15;
 
 // levels[i] is the light level (0-15) of cell i for cells light can be in (empty or see-through), 0 for solid cells.
 // passes(id) says whether light goes through a block; emit(id) gives the light level a block gives off (0 for most).
-export function computeLight(world, passes, emit) {
+// `sources` are extra lights standing in free cells (lit lamps): [x, y, z, level] each.
+// With { sky: false } only the glowing blocks and `sources` count (the "block light" on its own, used to make lit faces glow).
+export function computeLight(world, passes, emit, sources = [], { sky = true } = {}) {
   const { sx, sz, height: sy, cells } = world;
   const levels = new Uint8Array(cells.length);
   const idx = (x, y, z) => x + sx * (z + sz * y); // matches World.index
   const queue = [];
-  for (let z = 0; z < sz; z++) {
+  for (let z = 0; sky && z < sz; z++) {
     for (let x = 0; x < sx; x++) {
       for (let y = sy - 1; y >= 0 && passes(cells[idx(x, y, z)]); y--) {
         levels[idx(x, y, z)] = SKY_LEVEL;
@@ -40,6 +42,14 @@ export function computeLight(world, passes, emit) {
           }
         }
       }
+    }
+  }
+  for (const [x, y, z, level] of sources) {
+    if (x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz) continue;
+    const i = idx(x, y, z);
+    if (passes(cells[i]) && levels[i] < level) {
+      levels[i] = level;
+      queue.push(x, y, z);
     }
   }
   // spread: a lit cell lights its see-through neighbours one level lower (keep going until nothing gets brighter)
@@ -69,20 +79,25 @@ export const brightness = (level) => 0.14 + 0.86 * 0.82 ** (SKY_LEVEL - level);
 
 // The six face levels of the block at (x, y, z), in BoxGeometry order +x, -x, +y, -y, +z, -z: the level of the cell each face
 // looks into (past the edge of the world is open air). A see-through block just uses its own cell's level.
-export function faceLevels(world, levels, passes, x, y, z) {
+// `edge` is the level past the edge of the world: open air for sky light, nothing at all for block light.
+export function faceLevels(world, levels, passes, x, y, z, edge = { side: SKY_LEVEL, top: SKY_LEVEL, bottom: 8 }) {
   const out = [0, 0, 0, 0, 0, 0];
   const here = x + world.sx * (z + world.sz * y);
   if (passes(world.cells[here])) return out.fill(levels[here]);
   const look = (nx, ny, nz, outside) => {
-    if (ny >= world.height) return SKY_LEVEL;
+    if (ny >= world.height) return edge.top;
     if (nx < 0 || ny < 0 || nz < 0 || nx >= world.sx || nz >= world.sz) return outside;
     return levels[nx + world.sx * (nz + world.sz * ny)];
   };
-  out[0] = look(x + 1, y, z, SKY_LEVEL);
-  out[1] = look(x - 1, y, z, SKY_LEVEL);
-  out[2] = look(x, y + 1, z, SKY_LEVEL);
-  out[3] = look(x, y - 1, z, 8);
-  out[4] = look(x, y, z + 1, SKY_LEVEL);
-  out[5] = look(x, y, z - 1, SKY_LEVEL);
+  out[0] = look(x + 1, y, z, edge.side);
+  out[1] = look(x - 1, y, z, edge.side);
+  out[2] = look(x, y + 1, z, edge.side);
+  out[3] = look(x, y - 1, z, edge.bottom);
+  out[4] = look(x, y, z + 1, edge.side);
+  out[5] = look(x, y, z - 1, edge.side);
   return out;
 }
+
+// How strongly a face lit only by lamps and glowing blocks glows on its own (0 for none, about 0.7 right beside a lamp).
+export const glowAmount = (level) => (level <= 0 ? 0 : 0.9 * 0.7 ** (SKY_LEVEL - level));
+export const NO_EDGE_LIGHT = { side: 0, top: 0, bottom: 0 };

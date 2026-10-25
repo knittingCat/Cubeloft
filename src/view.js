@@ -2,21 +2,24 @@ import * as THREE from 'three';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
 import { textureCanvas, doorCanvas } from './textures.js';
-import { DOOR_THICKNESS } from './world.js';
-import { computeLight, faceLevels, brightness } from './light.js';
+import { DOOR_THICKNESS, LIGHT_SIDES, lampLit } from './world.js';
+import { computeLight, faceLevels, brightness, glowAmount, NO_EDGE_LIGHT } from './light.js';
 
 const DOOR_OPEN_ANGLE = -Math.PI / 2; // hinge turn of a fully open door
 const WALK_SPEED = 1.4; // cells per second (about a person's walking pace: the figure is ~1.5 cells tall)
 const STRIDE = 1.5; // cells covered by one full leg cycle (two steps)
 const TURN_TIME = 0.3; // seconds spent turning on the spot before walking off
 const DOOR_TIME = 0.7; // seconds for a door to swing open or shut
+const SWITCH_TIME = 0.4; // seconds a switch step takes in the animation
+const LAMP_LEVEL = 14; // the light level of the cell a lit lamp hangs in (a glowing block gives its level minus one next to it)
 const smooth = (u) => u * u * (3 - 2 * u);
 const angleDiff = (a, b) => ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI; // shortest signed turn from a to b
 
+// glow = how much faces next to a lamp or glowing block shine on their own (they matter most when the sky is dark)
 const SKIES = {
-  day: { top: '#5aa9ee', bottom: '#cfeaff', hemiSky: 0xdbeeff, hemiGround: 0x8a7a62, hemi: 2.6, sun: 0xfff2d6, sunI: 3.4, sunPos: [0.8, 1.2, 0.55], stars: false },
-  sunset: { top: '#4a5aa8', bottom: '#ffae72', hemiSky: 0xffcfa6, hemiGround: 0x5b4060, hemi: 2.0, sun: 0xffa760, sunI: 3.0, sunPos: [1.5, 0.5, 0.35], stars: false },
-  night: { top: '#050816', bottom: '#1b2a5c', hemiSky: 0x3a4a8c, hemiGround: 0x14142a, hemi: 1.6, sun: 0x9bb4ff, sunI: 0.9, sunPos: [-0.7, 1.2, 0.6], stars: true },
+  day: { top: '#5aa9ee', bottom: '#cfeaff', hemiSky: 0xdbeeff, hemiGround: 0x8a7a62, hemi: 2.6, sun: 0xfff2d6, sunI: 3.4, sunPos: [0.8, 1.2, 0.55], stars: false, glow: 0.3 },
+  sunset: { top: '#4a5aa8', bottom: '#ffae72', hemiSky: 0xffcfa6, hemiGround: 0x5b4060, hemi: 2.0, sun: 0xffa760, sunI: 3.0, sunPos: [1.5, 0.5, 0.35], stars: false, glow: 0.6 },
+  night: { top: '#050816', bottom: '#1b2a5c', hemiSky: 0x3a4a8c, hemiGround: 0x14142a, hemi: 1.6, sun: 0x9bb4ff, sunI: 0.9, sunPos: [-0.7, 1.2, 0.6], stars: true, glow: 1 },
 };
 
 export class DioramaView {
@@ -28,6 +31,9 @@ export class DioramaView {
     this.personGroups = new Map(); // person id -> { sig, group }
     this.personMats = new Map(); // colour -> material (shared)
     this.doorGroups = new Map(); // door id -> { sig, group }
+    this.lightGroups = new Map(); // lamp / switch id -> { sig, group }
+    this.animGroups = null; // while an animation plays: switch number -> on, overriding the real switches
+    this.glowScale = { value: 1 }; // shared by every block material: how much lamp-lit faces shine (set from the sky)
     this.textures = new Map();
     this.flowMeshes = new Map();
     this.materials = new Map();
@@ -92,6 +98,7 @@ export class DioramaView {
     this.rebuildLabels();
     this.rebuildPeople();
     this.rebuildDoors();
+    this.rebuildLights();
 
     this.onResize = () => this.resize();
     window.addEventListener('resize', this.onResize);
@@ -103,6 +110,7 @@ export class DioramaView {
       else if (e.type === 'labels') this.rebuildLabels();
       else if (e.type === 'people') this.rebuildPeople();
       else if (e.type === 'doors') this.rebuildDoors();
+      else if (e.type === 'lights') this.rebuildLights();
     });
 
     this.loop = this.loop.bind(this);
@@ -287,7 +295,13 @@ export class DioramaView {
     const k = this.world.size;
     this.sun.position.set(s.sunPos[0] * k, s.sunPos[1] * k, s.sunPos[2] * k);
     this.stars.visible = s.stars;
+    this.glowScale.value = s.glow;
     this.applyGlow();
+    // lamps set to a time of day go on or off with the sky
+    if (this.typeMeshes.size && this.world.lights.some((l) => l.kind === 'lamp' && l.mode === 'time')) {
+      this.updateLighting();
+      this.refreshLightLook();
+    }
     this.dirty = true;
   }
 
@@ -399,17 +413,20 @@ export class DioramaView {
     const make = (name) => {
       const m = new THREE.MeshLambertMaterial({ map: this.texture(name) });
       // each block face is lit by the cell it looks into (see light.js): two per-instance vec3s hold the six face brightnesses
-      m.customProgramCacheKey = () => 'faceLight';
+      m.customProgramCacheKey = () => 'faceLightGlow';
       m.onBeforeCompile = (shader) => {
         shader.vertexShader = shader.vertexShader
-          .replace('#include <common>', '#include <common>\nattribute vec3 lightA;\nattribute vec3 lightB;\nvarying float vFaceLight;')
+          .replace('#include <common>', '#include <common>\nattribute vec3 lightA;\nattribute vec3 lightB;\nattribute vec3 glowA;\nattribute vec3 glowB;\nvarying float vFaceLight;\nvarying float vFaceGlow;')
           .replace(
             '#include <begin_vertex>',
-            '#include <begin_vertex>\nvFaceLight = normal.x > 0.5 ? lightA.x : normal.x < -0.5 ? lightA.y : normal.y > 0.5 ? lightA.z : normal.y < -0.5 ? lightB.x : normal.z > 0.5 ? lightB.y : lightB.z;',
+            '#include <begin_vertex>\nvFaceLight = normal.x > 0.5 ? lightA.x : normal.x < -0.5 ? lightA.y : normal.y > 0.5 ? lightA.z : normal.y < -0.5 ? lightB.x : normal.z > 0.5 ? lightB.y : lightB.z;\nvFaceGlow = normal.x > 0.5 ? glowA.x : normal.x < -0.5 ? glowA.y : normal.y > 0.5 ? glowA.z : normal.y < -0.5 ? glowB.x : normal.z > 0.5 ? glowB.y : glowB.z;',
           );
+        shader.uniforms.uGlowScale = this.glowScale;
+        // a face lit by a lamp or glowing block shines a little on its own, so it is not as dark as the dim sky around it
         shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', '#include <common>\nvarying float vFaceLight;')
-          .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= vFaceLight;');
+          .replace('#include <common>', '#include <common>\nvarying float vFaceLight;\nvarying float vFaceGlow;\nuniform float uGlowScale;')
+          .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= vFaceLight;')
+          .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb / max(vFaceLight, 0.05) * vFaceGlow * uGlowScale;');
       };
       if (block.alpha) {
         m.transparent = true;
@@ -435,6 +452,7 @@ export class DioramaView {
   lightGeometry(capacity) {
     const geo = this.geometry.clone();
     for (const name of ['lightA', 'lightB']) geo.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3));
+    for (const name of ['glowA', 'glowB']) geo.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3));
     return geo;
   }
 
@@ -443,18 +461,25 @@ export class DioramaView {
     const w = this.world;
     const passes = (id) => id === 0 || !!BLOCK_BY_ID.get(id)?.alpha;
     const emit = (id) => Math.round((BLOCK_BY_ID.get(id)?.glow || 0) * 15);
-    const levels = computeLight(w, passes, emit);
+    const lamps = w.lights.filter((l) => this.lampIsLit(l)).map((l) => [l.x, l.y, l.z, LAMP_LEVEL]);
+    const levels = computeLight(w, passes, emit, lamps);
+    const blockLevels = computeLight(w, passes, emit, lamps, { sky: false }); // lamps and glowing blocks on their own: faces they light shine a little
     for (const { mesh, cellIdx } of this.typeMeshes.values()) {
       if (!cellIdx) continue;
       const a = mesh.geometry.getAttribute('lightA');
       const b = mesh.geometry.getAttribute('lightB');
+      const ga = mesh.geometry.getAttribute('glowA');
+      const gb = mesh.geometry.getAttribute('glowB');
       for (let k = 0; k < cellIdx.length; k++) {
         const [x, y, z] = w.coords(cellIdx[k]);
         const f = faceLevels(w, levels, passes, x, y, z).map(brightness);
         a.setXYZ(k, f[0], f[1], f[2]);
         b.setXYZ(k, f[3], f[4], f[5]);
+        const g = faceLevels(w, blockLevels, passes, x, y, z, NO_EDGE_LIGHT).map(glowAmount);
+        ga.setXYZ(k, g[0], g[1], g[2]);
+        gb.setXYZ(k, g[3], g[4], g[5]);
       }
-      a.needsUpdate = b.needsUpdate = true;
+      a.needsUpdate = b.needsUpdate = ga.needsUpdate = gb.needsUpdate = true;
     }
     this.dirty = true;
   }
@@ -651,12 +676,17 @@ export class DioramaView {
     this.personGroups.clear();
     for (const { group } of this.doorGroups.values()) this.scene.remove(group);
     this.doorGroups.clear();
+    for (const { group } of this.lightGroups.values()) this.scene.remove(group);
+    this.lightGroups.clear();
+    this.animGroups = null;
+    this.held = null;
     this.world = world;
     this.buildStage();
     this.rebuildAll();
     this.rebuildLabels();
     this.rebuildPeople();
     this.rebuildDoors();
+    this.rebuildLights();
     this.setSky(world.meta.sky || 'day');
     this.resetCamera();
     this.showSymmetry(this.symMode || 'off'); // planes follow the new stand size
@@ -666,6 +696,7 @@ export class DioramaView {
       else if (e.type === 'labels') this.rebuildLabels();
       else if (e.type === 'people') this.rebuildPeople();
       else if (e.type === 'doors') this.rebuildDoors();
+      else if (e.type === 'lights') this.rebuildLights();
     });
   }
 
@@ -1056,6 +1087,97 @@ export class DioramaView {
     return null;
   }
 
+  // ----- lamps and switches -----
+  // Are the switches with this number on? (an animation that is playing overrides the real ones)
+  groupIsOn(group) {
+    return this.animGroups?.has(group) ? this.animGroups.get(group) : this.world.groupOn(group);
+  }
+  lampIsLit(l) {
+    return lampLit(l, this.world.meta.sky || 'day', (g) => this.groupIsOn(g));
+  }
+
+  // A lamp (a bulb on a small base) or a switch (a plate with a rocker), drawn stuck to the side `at` of its cell:
+  // built standing on the bottom of the cell, then turned so its base faces the side it is stuck to.
+  buildLight(l) {
+    const root = new THREE.Group();
+    const inner = new THREE.Group();
+    root.add(inner);
+    const box = (w, h, d, color, y) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+      m.position.set(0, y, 0);
+      inner.add(m);
+      return m;
+    };
+    if (l.kind === 'lamp') {
+      box(0.34, 0.06, 0.34, 0x3f3f46, -0.47); // the base against the surface
+      box(0.08, 0.14, 0.08, 0x3f3f46, -0.37);
+      const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshBasicMaterial({ color: 0xfff1b0 }));
+      bulb.position.set(0, -0.2, 0);
+      inner.add(bulb);
+      root.userData.bulb = bulb;
+    } else {
+      box(0.34, 0.06, 0.5, 0xe5e7eb, -0.47);
+      root.userData.toggle = box(0.1, 0.12, 0.2, 0x22c55e, -0.4);
+    }
+    inner.rotation.y = l.at === 0 || l.at === 1 ? Math.PI / 2 : 0; // on a side wall the long edge of a switch stands upright
+    root.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), new THREE.Vector3(...LIGHT_SIDES[l.at]));
+    root.userData.lightId = l.id;
+    return root;
+  }
+
+  rebuildLights() {
+    this.dirty = true;
+    const alive = new Set(this.world.lights.map((l) => l.id));
+    for (const [id, entry] of this.lightGroups) {
+      if (!alive.has(id)) {
+        this.scene.remove(entry.group);
+        this.lightGroups.delete(id);
+      }
+    }
+    const off = this.offset;
+    const offZ = this.offsetZ;
+    for (const l of this.world.lights) {
+      const sig = `${l.kind}${l.at}`; // the look only depends on what it is and which side it is on; the rest is shown by refreshLightLook
+      let entry = this.lightGroups.get(l.id);
+      if (!entry || entry.sig !== sig) {
+        if (entry) this.scene.remove(entry.group);
+        entry = { sig, group: this.buildLight(l) };
+        this.scene.add(entry.group);
+        this.lightGroups.set(l.id, entry);
+      }
+      entry.group.position.set(l.x + 0.5 - off, l.y + 0.5, l.z + 0.5 - offZ);
+    }
+    if (this.typeMeshes.size) this.updateLighting(); // lit lamps light the blocks around them
+    this.refreshLightLook();
+  }
+
+  // Lit bulbs glow, unlit ones are dull; a switch's rocker leans one way when on and the other when off.
+  refreshLightLook() {
+    this.dirty = true;
+    for (const l of this.world.lights) {
+      const entry = this.lightGroups.get(l.id);
+      if (!entry) continue;
+      const { bulb, toggle } = entry.group.userData;
+      if (bulb) bulb.material.color.set(this.lampIsLit(l) ? 0xfff1b0 : 0x6b6358);
+      if (toggle) {
+        const on = this.groupIsOn(l.group);
+        toggle.rotation.x = on ? -0.55 : 0.55;
+        toggle.material.color.set(on ? 0x22c55e : 0xef4444);
+      }
+    }
+  }
+
+  // id of the lamp or switch under the pointer, or null
+  lightAt(ray) {
+    const roots = [...this.lightGroups.values()].map((e) => e.group);
+    for (const h of ray.raycaster.intersectObjects(roots, true)) {
+      let o = h.object;
+      while (o && o.userData.lightId === undefined) o = o.parent;
+      if (o) return o.userData.lightId;
+    }
+    return null;
+  }
+
   // ----- animation playback -----
   // Turns a list of steps (see cleanAnimation in world.js) into a timeline: for each person a list of walking
   // segments, for each door a list of swings. Steps run one after another; a step marked `together` starts with
@@ -1064,6 +1186,7 @@ export class DioramaView {
     const world = this.world;
     const people = new Map(); // person id -> { start: {x,y,z,facing}, segs: [], at: current planned state }
     const doors = new Map(); // door id -> { open0, events: [], open: current planned state }
+    const lights = new Map(); // switch number -> { on0, events: [{ t, to }] }
     let end = 0;
     let prevStart = 0;
     let total = 0;
@@ -1109,12 +1232,16 @@ export class DioramaView {
         rec.events.push({ t0: start, t1: start + DOOR_TIME, from: rec.open ? 1 : 0, to: s.open ? 1 : 0 });
         rec.open = s.open;
         dur = DOOR_TIME;
+      } else if (s.type === 'light') {
+        if (!lights.has(s.group)) lights.set(s.group, { on0: world.groupOn(s.group), events: [] });
+        lights.get(s.group).events.push({ t: start, to: s.on });
+        dur = SWITCH_TIME;
       } else if (s.type === 'wait') dur = s.seconds;
       prevStart = start;
       end = Math.max(end, start + dur);
       total = Math.max(total, start + dur);
     }
-    return total > 0 ? { people, doors, total, stepStart } : null;
+    return total > 0 ? { people, doors, lights, total, stepStart } : null;
   }
 
   // Pose one person at time t: position, facing, and swinging legs and arms.
@@ -1177,6 +1304,25 @@ export class DioramaView {
     entry.group.userData.hinge.rotation.y = v * DOOR_OPEN_ANGLE;
   }
 
+  // Switch numbers the steps flip: set each one's state at time t, and when any changed, relight the scene.
+  poseAnimatedLights(plan, t) {
+    if (!plan.lights.size) return;
+    let changed = false;
+    this.animGroups ??= new Map();
+    for (const [group, rec] of plan.lights) {
+      let on = rec.on0;
+      for (const ev of rec.events) if (t >= ev.t) on = ev.to;
+      if (this.animGroups.get(group) !== on) {
+        this.animGroups.set(group, on);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.updateLighting();
+      this.refreshLightLook();
+    }
+  }
+
   get animating() {
     return !!this.anim;
   }
@@ -1204,6 +1350,7 @@ export class DioramaView {
     const t = (performance.now() - t0) / 1000;
     for (const [id, rec] of plan.people) this.poseAnimatedPerson(id, rec, t);
     for (const [id, rec] of plan.doors) this.poseAnimatedDoor(id, rec, t);
+    this.poseAnimatedLights(plan, t);
     if (this.following()) this.followCamera();
     this.dirty = true;
     if (t <= plan.total + 0.3) return;
@@ -1254,6 +1401,11 @@ export class DioramaView {
     }
     this.rebuildPeople();
     this.rebuildDoors();
+    if (this.animGroups) {
+      this.animGroups = null; // the real switches rule again
+      this.updateLighting();
+      this.refreshLightLook();
+    }
     if (this.looking) {
       // the figure was rebuilt: keep it hidden from its own eyes, and go back to where the keys left you
       const entry = this.personGroups.get(this.looking.id);

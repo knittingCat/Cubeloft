@@ -61,8 +61,41 @@ export function cleanDoor(d) {
   out.z = Number(d.z);
   return out;
 }
+// ---- lights and switches (small objects in a free cell, stuck to one side of it; not part of the block grid) ----
+// at = the side of the cell the object is stuck to: 0 east (+x), 1 west (-x), 2 top (hangs from the ceiling), 3 bottom (stands on the
+// floor or a block), 4 south (+z), 5 north (-z). A lamp gives light like a glowing block, but only while it is lit:
+//   mode 'on' (always), 'switch' (lit while the switches numbered `group` are on) or 'time' (lit at the `times` of day).
+// A switch has a number (group 1-9) and is on or off; clicking one flips every switch with the same number.
+export const MAX_LIGHT_GROUP = 9;
+export const LIGHT_TIMES = ['day', 'sunset', 'night'];
+export const LAMP_MODES = ['on', 'switch', 'time'];
+export const LIGHT_SIDES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]; // from the cell towards the side it is stuck to
+export const MAX_LIGHTS = 300;
+export function cleanLight(l) {
+  const out = { kind: l.kind === 'switch' ? 'switch' : 'lamp' };
+  out.at = Number.isInteger(l.at) && l.at >= 0 && l.at <= 5 ? l.at : 3;
+  out.group = Number.isInteger(l.group) && l.group >= 1 && l.group <= MAX_LIGHT_GROUP ? l.group : 1;
+  if (out.kind === 'switch') out.on = l.on === true;
+  else {
+    out.mode = LAMP_MODES.includes(l.mode) ? l.mode : 'on';
+    out.times = LIGHT_TIMES.filter((t) => Array.isArray(l.times) && l.times.includes(t));
+    if (out.mode === 'time' && !out.times.length) out.times = ['night'];
+  }
+  out.x = Number(l.x);
+  out.y = Number(l.y);
+  out.z = Number(l.z);
+  return out;
+}
+// Is this lamp giving light right now? sky = 'day' | 'sunset' | 'night'; groupOn(n) says whether the switches numbered n are on.
+export function lampLit(lamp, sky, groupOn) {
+  if (lamp.kind !== 'lamp') return false;
+  if (lamp.mode === 'switch') return !!groupOn(lamp.group);
+  if (lamp.mode === 'time') return lamp.times.includes(sky);
+  return true;
+}
 // ---- animation: a short list of steps played one after another (or together with the one before) ----
 //   { type: 'walk', person: id, x, y, z }   the person walks to that cell
+//   { type: 'light', group: n, on: bool }   the switches numbered n are flipped on or off (lamps on that switch follow)
 //   { type: 'turn', person: id, x, z }      the person turns on the spot to face that cell
 //   { type: 'door', door: id, open: bool }  the door swings open or shut
 //   { type: 'wait', seconds }               a pause
@@ -83,6 +116,9 @@ export function cleanAnimation(list) {
     } else if (s.type === 'door') {
       if (!Number.isInteger(s.door)) continue;
       Object.assign(step, { door: s.door, open: s.open === true });
+    } else if (s.type === 'light') {
+      if (!Number.isInteger(s.group) || s.group < 1 || s.group > MAX_LIGHT_GROUP) continue;
+      Object.assign(step, { group: s.group, on: s.on === true });
     } else if (s.type === 'wait') {
       step.seconds = Math.max(0.1, Math.min(60, Number(s.seconds) || 1));
     } else continue;
@@ -106,7 +142,9 @@ export class World {
     this.nextPersonId = 1;
     this.doors = []; // { id, x, y, z, rot, open, wood } see cleanDoor
     this.nextDoorId = 1;
-    this.meta = { sky: 'day', title: '', subtitle: '' };
+    this.lights = []; // { id, kind: 'lamp' | 'switch', x, y, z, at, group, ... } see cleanLight
+    this.nextLightId = 1;
+    this.meta ={ sky: 'day', title: '', subtitle: '' };
     this.undoStack = [];
     this.redoStack = [];
     this.nextLabelId = 1;
@@ -221,7 +259,10 @@ export class World {
   markStart(from = this) {
     if (from.sx !== this.sx || from.sz !== this.sz) return;
     const labelKey = (l) => `${l.x},${l.y},${l.z},${l.text}`;
-    this.start = { cells: from.cells.slice(), labels: new Set(from.labels.map(labelKey)), people: new Set(from.people.map((p) => p.id)), doors: new Set(from.doors.map((d) => d.id)) };
+    this.start = { cells: from.cells.slice(), labels: new Set(from.labels.map(labelKey)), people: new Set(from.people.map((p) => p.id)), doors: new Set(from.doors.map((d) => d.id)), lights: new Set(from.lights.map((l) => l.id)) };
+  }
+  isStartLight(l) {
+    return !!this.start && this.start.lights.has(l.id);
   }
   isStartCell(x, y, z, id) {
     return !!this.start && this.start.cells[this.index(x, y, z)] === id;
@@ -239,7 +280,7 @@ export class World {
   // Remove every block and sign inside the box (corners in any order) as ONE undo step.
   // keep(x, y, z, id) => true leaves that block alone (used so Clear keeps the starting scene).
   // keepLabel(label) / keepPerson(person) => true leaves that sign / person alone.
-  clearRegion(a, b, { keep = null, keepLabel = null, keepPerson = null, keepDoor = null } = {}) {
+  clearRegion(a, b, { keep = null, keepLabel = null, keepPerson = null, keepDoor = null, keepLight = null } = {}) {
     const lo = [0, 1, 2].map((i) => Math.min(a[i], b[i]));
     const hi = [0, 1, 2].map((i) => Math.max(a[i], b[i]));
     const changes = [];
@@ -264,14 +305,18 @@ export class World {
     const goesD = (d) => inside(d) && !(keepDoor && keepDoor(d));
     const doorsRemove = this.doors.filter(goesD).map((d) => ({ ...d }));
     this.doors = this.doors.filter((d) => !goesD(d));
-    if (!changes.length && !labelsRemove.length && !peopleRemove.length && !doorsRemove.length) return { blocks: 0, labels: 0, people: 0, doors: 0 };
-    this.undoStack.push({ cells: changes, labelsRemove, peopleRemove, doorsRemove });
+    const goesLt = (l) => inside(l) && !(keepLight && keepLight(l));
+    const lightsRemove = this.lights.filter(goesLt).map((l) => ({ ...l }));
+    this.lights = this.lights.filter((l) => !goesLt(l));
+    if (!changes.length && !labelsRemove.length && !peopleRemove.length && !doorsRemove.length && !lightsRemove.length) return { blocks: 0, labels: 0, people: 0, doors: 0, lights: 0 };
+    this.undoStack.push({ cells: changes, labelsRemove, peopleRemove, doorsRemove, lightsRemove });
     this.redoStack.length = 0;
     if (changes.length) this.emit({ type: 'cells', changes });
     if (labelsRemove.length) this.emit({ type: 'labels' });
     if (peopleRemove.length) this.emit({ type: 'people' });
     if (doorsRemove.length) this.emit({ type: 'doors' });
-    return { blocks: changes.length, labels: labelsRemove.length, people: peopleRemove.length, doors: doorsRemove.length };
+    if (lightsRemove.length) this.emit({ type: 'lights' });
+    return { blocks: changes.length, labels: labelsRemove.length, people: peopleRemove.length, doors: doorsRemove.length, lights: lightsRemove.length };
   }
 
   boxCells(a, b) {
@@ -497,6 +542,84 @@ export class World {
     return d;
   }
 
+  // ----- lights and switches -----
+  // A free cell with something solid (or the floor, for the bottom side) on the side it is stuck to; one object per cell and side.
+  canPlaceLight(x, y, z, at, ignoreId = null) {
+    if (!this.inBounds(x, y, z) || this.get(x, y, z) || !(at >= 0 && at <= 5) || this.lights.length >= MAX_LIGHTS) return false;
+    const [dx, dy, dz] = LIGHT_SIDES[at];
+    const held = at === 3 && y === 0 ? true : this.get(x + dx, y + dy, z + dz) !== 0;
+    return held && !this.lights.some((l) => l.id !== ignoreId && l.x === x && l.y === y && l.z === z && l.at === at);
+  }
+  addLight(props, { record = true, id } = {}) {
+    const l = cleanLight(props);
+    if (![l.x, l.y, l.z].every(Number.isInteger) || !this.inBounds(l.x, l.y, l.z) || (id === undefined && this.lights.length >= MAX_LIGHTS)) return null;
+    l.id = id ?? this.nextLightId++;
+    this.nextLightId = Math.max(this.nextLightId, l.id + 1);
+    this.lights.push(l);
+    if (record) {
+      this.undoStack.push({ lightAdd: { ...l } });
+      this.redoStack.length = 0;
+    }
+    this.emit({ type: 'lights' });
+    return l;
+  }
+  removeLight(id, { record = true } = {}) {
+    const k = this.lights.findIndex((l) => l.id === id);
+    if (k < 0) return false;
+    const [l] = this.lights.splice(k, 1);
+    if (record) {
+      this.undoStack.push({ lightRemove: { ...l } });
+      this.redoStack.length = 0;
+    }
+    this.emit({ type: 'lights' });
+    return true;
+  }
+  getLight(id) {
+    return this.lights.find((l) => l.id === id) || null;
+  }
+  // Change a lamp's mode, times or number, or a switch's number or state, as one undo step.
+  changeLight(id, changes, { record = true } = {}) {
+    const l = this.getLight(id);
+    if (!l) return null;
+    const before = { ...l };
+    Object.assign(l, cleanLight({ ...l, ...changes }), { id: l.id });
+    if (record) {
+      this.undoStack.push({ lightUpdate: { before, after: { ...l } } });
+      this.redoStack.length = 0;
+    }
+    this.emit({ type: 'lights' });
+    return l;
+  }
+  // Are the switches numbered `group` on? (a lamp on a number with no switch is never lit)
+  groupOn(group) {
+    return this.lights.some((l) => l.kind === 'switch' && l.group === group && l.on);
+  }
+  hasSwitch(group) {
+    return this.lights.some((l) => l.kind === 'switch' && l.group === group);
+  }
+  // Put every switch numbered `group` on or off (or the other way round when `on` is left out) as one undo step. Returns the new state, null if there is no such switch.
+  setGroup(group, on = !this.groupOn(group), { record = true } = {}) {
+    const changed = [];
+    let any = false;
+    for (const l of this.lights) {
+      if (l.kind !== 'switch' || l.group !== group) continue;
+      any = true;
+      if (l.on !== on) {
+        changed.push({ before: { ...l }, after: { ...l, on } });
+        l.on = on;
+      }
+    }
+    if (!any) return null;
+    if (changed.length) {
+      if (record) {
+        this.undoStack.push({ lightBatch: changed });
+        this.redoStack.length = 0;
+      }
+      this.emit({ type: 'lights' });
+    }
+    return on;
+  }
+
   // ----- animation (not part of undo; edited with its own Remove / Clear buttons) -----
   get animation() {
     return this.meta.animation || [];
@@ -559,6 +682,20 @@ export class World {
     if (step.doorsRemove) {
       if (reverse) for (const d of step.doorsRemove) this.addDoor(d, { record: false, id: d.id });
       else for (const d of step.doorsRemove) this.removeDoor(d.id, { record: false });
+    }
+    if (step.lightAdd) {
+      if (reverse) this.removeLight(step.lightAdd.id, { record: false });
+      else this.addLight(step.lightAdd, { record: false, id: step.lightAdd.id });
+    }
+    if (step.lightRemove) {
+      if (reverse) this.addLight(step.lightRemove, { record: false, id: step.lightRemove.id });
+      else this.removeLight(step.lightRemove.id, { record: false });
+    }
+    if (step.lightUpdate) this.changeLight(step.lightUpdate.after.id, reverse ? step.lightUpdate.before : step.lightUpdate.after, { record: false });
+    if (step.lightBatch) for (const c of step.lightBatch) this.changeLight(c.after.id, reverse ? c.before : c.after, { record: false });
+    if (step.lightsRemove) {
+      if (reverse) for (const l of step.lightsRemove) this.addLight(l, { record: false, id: l.id });
+      else for (const l of step.lightsRemove) this.removeLight(l.id, { record: false });
     }
     if (step.peopleRemove) {
       if (reverse) for (const p of step.peopleRemove) this.addPerson(p, { record: false, id: p.id });
@@ -661,7 +798,7 @@ export class World {
     }
     varint(run);
     out.push(cur);
-    const json = new TextEncoder().encode(JSON.stringify({ labels: this.labels, meta: this.meta, people: this.people, doors: this.doors }));
+    const json = new TextEncoder().encode(JSON.stringify({ labels: this.labels, meta: this.meta, people: this.people, doors: this.doors, ...(this.lights.length ? { lights: this.lights } : {}) }));
     const header = [];
     let n = json.length;
     while (n >= 128) {
@@ -704,6 +841,7 @@ export class World {
     for (const l of json.labels || []) world.addLabel(l.x, l.y, l.z, String(l.text).slice(0, 80), { record: false, id: l.id });
     for (const p of json.people || []) world.addPerson({ ...p }, { record: false, id: Number.isInteger(p.id) ? p.id : undefined });
     for (const d of json.doors || []) world.addDoor({ ...d }, { record: false, id: Number.isInteger(d.id) ? d.id : undefined });
+    for (const l of (json.lights || []).slice(0, MAX_LIGHTS)) if (l && typeof l === 'object') world.addLight({ ...l }, { record: false, id: Number.isInteger(l.id) ? l.id : undefined });
     Object.assign(world.meta, json.meta || {});
     if (world.meta.animation) world.meta.animation = cleanAnimation(world.meta.animation);
     if (!world.meta.animation?.length) delete world.meta.animation;

@@ -57,12 +57,16 @@ dialog img { width: 100%; border-radius: 10px; border: 1px solid var(--line); ba
 @media (min-width: 761px) and (max-width: 1400px) {
   #top { gap: .4rem; padding: .5rem .5rem; }
   .group { gap: .2rem; }
-  #top button { padding: .4rem .3rem; }
+  #top .group button { padding: .4rem .3rem; } /* (.group makes these win over the later, plainer button padding rule) */
   .brand { font-size: 1rem; margin-right: 0; }
+}
+@media (min-width: 761px) and (max-width: 1110px) {
+  #top { gap: .3rem; padding-inline: .4rem; }
+  .group { gap: .12rem; }
 }
 @media (min-width: 761px) and (max-width: 1250px) {
   .brandname { display: none; }
-  #top button { padding: .4rem .25rem; }
+  #top .group button { padding: .4rem .25rem; }
   #top button svg { width: 18px; height: 18px; }
 }
 
@@ -147,6 +151,15 @@ body.viewonly #stage canvas { cursor: grab; }
 #lookBar[hidden] { display: none; }
 #flyBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; align-items: center; gap: .6rem; background: rgba(18,21,31,.92); border: 1px solid #60a5fa; border-radius: 12px; padding: .4rem .7rem; z-index: 6; font-size: .9rem; max-width: 94vw; flex-wrap: wrap; justify-content: center; }
 #flyBar[hidden] { display: none; }
+#lightBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: stretch; gap: .4rem; background: rgba(18,21,31,.94); border: 1px solid #facc15; border-radius: 12px; padding: .5rem .7rem; z-index: 6; font-size: .9rem; width: min(94vw, 44rem); }
+#lightBar[hidden], #lightBar [hidden] { display: none; }
+#lightBar .lightRow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; }
+#lightBar .lightKinds { display: inline-flex; gap: .3rem; }
+#lightBar .lightKinds button.active { background: var(--accent, #5b8cff); border-color: var(--accent, #5b8cff); color: #fff; }
+#lightBar label { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); }
+#lightTimes { display: inline-flex; gap: .6rem; }
+#lightHint { text-align: center; color: #facc15; min-height: 1.2em; }
+body:has(#lookBar:not([hidden])) #lightBar, body:has(#flyBar:not([hidden])) #lightBar { bottom: 10rem; }
 #animBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: stretch; gap: .4rem; background: rgba(18,21,31,.94); border: 1px solid #f59e0b; border-radius: 12px; padding: .5rem .7rem; z-index: 6; font-size: .9rem; width: min(94vw, 44rem); }
 #animBar[hidden] { display: none; }
 body:has(#lookBar:not([hidden])) #animBar, body:has(#flyBar:not([hidden])) #animBar { bottom: 10rem; } /* sit above the POV / fly bar */

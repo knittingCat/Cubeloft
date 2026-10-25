@@ -1,4 +1,4 @@
-import { cleanPerson, cleanDoor } from './world.js';
+import { cleanPerson, cleanDoor, cleanLight, MAX_LIGHTS } from './world.js';
 import { getSessionToken } from './api.js';
 
 // Live editing in the browser: while a class diorama is open for editing, every change is sent to the server,
@@ -70,6 +70,18 @@ export function createLive({ getWorld, encode, onPeers, onState, onLost }) {
     world.emit({ type: 'doors', remote: true });
   }
 
+  function applyLights(world, list) {
+    if (!Array.isArray(list) || list.length > MAX_LIGHTS) return;
+    const lights = [];
+    for (const raw of list) {
+      if (!raw || !Number.isInteger(raw.id) || ![raw.x, raw.y, raw.z].every(Number.isInteger) || !world.inBounds(raw.x, raw.y, raw.z)) continue;
+      lights.push({ ...cleanLight(raw), id: raw.id });
+    }
+    world.lights = lights;
+    world.nextLightId = Math.max(world.nextLightId, ...lights.map((l) => l.id + 1));
+    world.emit({ type: 'lights', remote: true });
+  }
+
   async function onMessage(raw) {
     let msg;
     try {
@@ -91,6 +103,7 @@ export function createLive({ getWorld, encode, onPeers, onState, onLost }) {
     else if (msg.t === 'labels') applyLabels(world, msg.labels);
     else if (msg.t === 'people') applyPeople(world, msg.people);
     else if (msg.t === 'doors') applyDoors(world, msg.doors);
+    else if (msg.t === 'lights') applyLights(world, msg.lights);
   }
 
   function start() {
@@ -144,6 +157,7 @@ export function createLive({ getWorld, encode, onPeers, onState, onLost }) {
       else if (event.type === 'labels') post({ t: 'labels', labels: world.labels });
       else if (event.type === 'people') post({ t: 'people', people: world.people });
       else if (event.type === 'doors') post({ t: 'doors', doors: world.doors });
+      else if (event.type === 'lights') post({ t: 'lights', lights: world.lights });
     },
   };
 }

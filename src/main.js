@@ -1,4 +1,4 @@
-import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS, MAX_ANIMATION_STEPS } from './world.js';
+import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS, MAX_ANIMATION_STEPS, LIGHT_SIDES } from './world.js';
 import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
 import { textureCanvas, topTextureName } from './textures.js';
 import { DioramaView } from './view.js';
@@ -129,6 +129,8 @@ const AREA_TOOLS = ['box', 'select', 'paste', 'mirror', 'measure']; // tools whe
 let measureA = null; // Measure tool: the first cell, then the second (a third click starts over)
 let measureB = null;
 let measureHoverKey = null; // the cell the live measuring line currently ends on
+let lightKind = 'lamp'; // Lights tool: what the next click places ('lamp' or 'switch')
+let lightSel = null; // Lights tool: id of the lamp or switch whose settings are shown (and changed by the controls)
 let selection = null; // { a, b } finished selection
 let clip = null; // copied blocks (kept when you open another diorama)
 let lastTapKey = null; // touch: first tap previews the paste, second tap places it
@@ -223,6 +225,9 @@ function setTool(t) {
   view?.showRegion(null, null);
   if (t !== 'paste') view?.showFootprint(null);
   $('#pasteBar').hidden = t !== 'paste';
+  $('#lightBar').hidden = t !== 'light';
+  lightSel = null;
+  syncLightBar();
   $$('[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
   updateStatus();
   refreshHover();
@@ -252,11 +257,12 @@ function saveSuffix() {
 }
 
 function updateStatus() {
-  const names = { build: 'Build', erase: 'Erase', box: 'Box fill', pick: 'Pick', label: 'Sign', select: 'Select', paste: 'Paste', mirror: 'Mirror', person: 'Person', door: 'Door', measure: 'Measure' };
+  const names = { build: 'Build', erase: 'Erase', box: 'Box fill', pick: 'Pick', label: 'Sign', select: 'Select', paste: 'Paste', mirror: 'Mirror', person: 'Person', door: 'Door', measure: 'Measure', light: 'Lights' };
   let hint = tool === 'box' ? (boxA ? ' — click the opposite corner' : ' — click a first corner') : '';
   if (tool === 'mirror') hint = mirrorSel ? ' — click where the mirror line should go (beside the area; the blue line shows it)' : selA ? ' — click the opposite corner of the area' : ' — click one corner of the area to mirror';
   if (tool === 'select') hint = selA ? ' — click the opposite corner' : selection ? ' — copied — press Paste' : ' — click one corner of the area';
   if (tool === 'measure') hint = measureB ? ` — ${measure(measureA, measureB).text} (click again to measure something else)` : measureA ? ' — click the second block' : ' — click a block to start measuring from, then another to measure to';
+  if (tool === 'light') hint = ` — click a block face or the floor to put a ${lightKind} there, click one to change it`;
   if (tool === 'person') hint = ' — click to put a person here, or click one to change their outfit';
   if (tool === 'door') hint = ' — click to place a door (it takes the planks colour you have selected), click one to open or close it, R turns it, Shift+R flips it to the other side';
   if (tool === 'paste') hint = clip ? ` — ${clip.w}×${clip.h}×${clip.d} footprint: move it, then click to place` : '';
@@ -335,7 +341,11 @@ async function doCloudSave() {
 function attachWorld(w) {
   world = w;
   world.onChange((e) => {
-    if (e && (e.type === 'animation' || e.type === 'people' || e.type === 'doors')) renderAnimSteps();
+    if (e && (e.type === 'animation' || e.type === 'people' || e.type === 'doors' || e.type === 'lights')) renderAnimSteps();
+    if (e && e.type === 'lights') {
+      if (lightSel != null && !world.getLight(lightSel)) lightSel = null; // removed (or undone)
+      syncLightBar();
+    }
     updateStatus();
     scheduleSave(!!(e && e.remote));
     live.send(e);
@@ -547,6 +557,13 @@ function refreshHover(e) {
     view.showGhost(null);
     return;
   }
+  if (tool === 'light') {
+    // pointing at an existing lamp or switch: no ghost; otherwise a ghost where the new one would go
+    const l = lightSel != null ? world.getLight(lightSel) : null;
+    view.showRegion(l ? [l.x, l.y, l.z] : null, l ? [l.x, l.y, l.z] : null);
+    view.showGhost(hit?.prev && lightUnderPointer(ray, hit) == null ? hit.prev : null, { color: 0xfff1b0, opacity: 0.22 });
+    return;
+  }
   if (tool === 'paste') {
     view.showGhost(null);
     if (!hit || !clip || !hit.prev) return view.showFootprint(null);
@@ -614,6 +631,103 @@ function refreshHover(e) {
   }
 }
 
+// ---------- lights: lamps and switches ----------
+// The bar's controls show the settings of the selected lamp or switch (changing them changes it, one undo step each),
+// or, with nothing selected, the settings the next one you place will get.
+const lightDefaults = { mode: 'on', group: 1, times: ['night'] };
+
+function lightSettings() {
+  const times = $$('#lightTimes input').filter((b) => b.checked).map((b) => b.dataset.time);
+  return { mode: $('#lightMode').value, group: Number($('#lightGroup').value), times };
+}
+
+function syncLightBar() {
+  if (!world) return;
+  const l = lightSel != null ? world.getLight(lightSel) : null;
+  const kind = l ? l.kind : lightKind;
+  const s = l ? { mode: l.mode || 'on', group: l.group, times: l.times || [] } : lightDefaults;
+  $('#lightMode').value = s.mode;
+  $('#lightGroup').value = String(s.group);
+  $$('#lightTimes input').forEach((b) => (b.checked = s.times.includes(b.dataset.time)));
+  $$('#lightBar [data-kind]').forEach((b) => b.classList.toggle('active', b.dataset.kind === kind));
+  $('#lightModeRow').hidden = kind !== 'lamp';
+  $('#lightGroupRow').hidden = !(kind === 'switch' || s.mode === 'switch');
+  $('#lightTimes').hidden = !(kind === 'lamp' && s.mode === 'time');
+  $('#lightFlip').hidden = !(l && l.kind === 'switch');
+  $('#lightRemove').hidden = !l;
+  let hint = 'Click a block face or the floor to put one there. Click a lamp or switch to change it; right-click removes it.';
+  if (l && l.kind === 'lamp') {
+    const lit = l.mode === 'on' ? 'always lit' : l.mode === 'switch' ? (world.hasSwitch(l.group) ? `lit while switch ${l.group} is on` : `waiting for a switch numbered ${l.group} (place one)`) : `lit at ${l.times.join(', ')}`;
+    hint = `Selected lamp: ${lit}.`;
+  } else if (l) hint = `Selected switch ${l.group}: click it (in any tool) to flip every lamp numbered ${l.group}.`;
+  $('#lightHint').textContent = hint;
+  if (tool === 'light') {
+    view?.showRegion(l ? [l.x, l.y, l.z] : null, l ? [l.x, l.y, l.z] : null); // the selected one is outlined
+    updateStatus();
+  }
+}
+
+function applyLightControls() {
+  const s = lightSettings();
+  const l = lightSel != null ? world.getLight(lightSel) : null;
+  if (!l) {
+    Object.assign(lightDefaults, s);
+    if (lightDefaults.mode === 'time' && !lightDefaults.times.length) lightDefaults.times = ['night'];
+  } else if (l.kind === 'switch') world.changeLight(l.id, { group: s.group });
+  else world.changeLight(l.id, { mode: s.mode, group: s.group, times: s.times });
+  syncLightBar();
+}
+
+// The index (see LIGHT_SIDES) of the side of cell `at` that faces the block `cell`.
+function sideTowards(at, cell) {
+  const k = LIGHT_SIDES.findIndex((d) => d[0] === cell[0] - at[0] && d[1] === cell[1] - at[1] && d[2] === cell[2] - at[2]);
+  return k < 0 ? 3 : k;
+}
+
+// The lamp or switch the pointer is on: the one drawn under it, or the one stuck to the face (or floor spot) being pointed at.
+function lightUnderPointer(ray, hit) {
+  const id = view.lightAt(ray);
+  if (id != null) return id;
+  if (!hit || !hit.prev) return null;
+  const [x, y, z] = hit.prev;
+  const at = hit.cell ? sideTowards(hit.prev, hit.cell) : 3;
+  return world.lights.find((l) => l.x === x && l.y === y && l.z === z && l.at === at)?.id ?? null;
+}
+
+function lightClick(ray, hit, erasing) {
+  const id = lightUnderPointer(ray, hit);
+  if (id != null) {
+    if (erasing) world.removeLight(id);
+    else {
+      lightSel = id;
+      syncLightBar();
+    }
+    return;
+  }
+  if (erasing || !hit || !hit.prev) return;
+  const [x, y, z] = hit.prev;
+  const at = hit.cell ? sideTowards(hit.prev, hit.cell) : 3; // stuck to the block it was clicked on, or standing on the floor
+  if (!world.canPlaceLight(x, y, z, at)) return toast(world.lights.length >= 300 ? 'That is the most lamps and switches (300).' : 'There is already one there, or the cell is not free.');
+  const s = lightSettings();
+  const light = world.addLight(lightKind === 'switch' ? { kind: 'switch', x, y, z, at, group: s.group } : { kind: 'lamp', x, y, z, at, mode: s.mode, group: s.group, times: s.times });
+  if (light) {
+    lightSel = light.id;
+    syncLightBar();
+  }
+}
+
+function flipSwitch(l) {
+  const on = world.setGroup(l.group);
+  toast(on ? `Switch ${l.group} is on.` : `Switch ${l.group} is off.`);
+}
+
+// Is switch `group` on once every animation step so far has played? (so a new Switch step flips it the other way)
+function groupOnAfterSteps(group) {
+  let on = world.groupOn(group);
+  for (const s of world.animation) if (s.type === 'light' && s.group === group) on = s.on;
+  return on;
+}
+
 let movingPerson = null; // id of a person waiting to be moved to the next clicked spot
 
 function startLooking(id) {
@@ -654,6 +768,7 @@ function stepText(s) {
     const d = world.getDoor(s.door);
     return d ? `Door at ${d.x}, ${d.z} ${s.open ? 'opens' : 'closes'}` : 'A door that is gone';
   }
+  if (s.type === 'light') return `Switch ${s.group} turns ${s.on ? 'on' : 'off'}${world.hasSwitch(s.group) ? '' : ' (no such switch)'}`;
   return `Wait ${s.seconds} second${s.seconds === 1 ? '' : 's'}`;
 }
 
@@ -750,13 +865,19 @@ function animClick(e, button) {
     if (id == null) return toast('Click a door.');
     addAnimStep({ type: 'door', door: id, open: !doorOpenAfterSteps(id) });
     setAnimMode(null, 'Added. It plays once now; press Play to watch it all, or add more steps.');
+  } else if (animMode === 'light') {
+    const lightId = lightUnderPointer(ray, hit);
+    const l = lightId != null ? world.getLight(lightId) : null;
+    if (!l || l.kind !== 'switch') return toast('Click a switch.');
+    addAnimStep({ type: 'light', group: l.group, on: !groupOnAfterSteps(l.group) });
+    setAnimMode(null, 'Added. It plays once now; press Play to watch it all, or add more steps.');
   }
 }
 
 // from: index of the step to start at (a just-added step plays by itself, from where the steps before it end)
 // onDone: called when it ends or is stopped. Returns whether it started.
 function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing…', hold = false) {
-  if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.'), false;
+  if (!world.animation.length) return toast('Add some steps first: Walk, Turn, Door or Switch.'), false;
   const lookText = $('#lookHelp').textContent; // the person bar's usual key help, put back when the animation ends
   const started = view.playAnimation(
     world.animation,
@@ -784,7 +905,7 @@ function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing�
 function recordAnimation() {
   if (view.animating) return;
   if (typeof MediaRecorder === 'undefined' || !view.canvas.captureStream) return toast('This browser cannot record video. Try Chrome, Edge or Firefox.');
-  if (!world.animation.length) return toast('Add some steps first: Walk, Turn or Door.');
+  if (!world.animation.length) return toast('Add some steps first: Walk, Turn, Door or Switch.');
   const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find((t) => MediaRecorder.isTypeSupported(t));
   const chunks = [];
   const rec = new MediaRecorder(view.canvas.captureStream(30), { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: 8_000_000 });
@@ -853,6 +974,17 @@ async function actAt(e, button) {
     return;
   }
   const erasing = tool === 'erase' || button === 2 || e.shiftKey;
+  if (tool === 'light') return lightClick(ray, hit, button === 2 || e.shiftKey);
+  // switches: click one with any tool (except the area tools) to flip it; Erase removes any lamp or switch
+  if (!AREA_TOOLS.includes(tool)) {
+    const lightId = lightUnderPointer(ray, hit);
+    const l = lightId != null ? world.getLight(lightId) : null;
+    if (l && (erasing || l.kind === 'switch')) {
+      if (erasing) world.removeLight(l.id);
+      else flipSwitch(l);
+      return;
+    }
+  }
   // doors: click one with any tool (except the area tools) to open / close it; with the Door tool and a different
   // planks colour selected it is repainted instead; Erase removes it
   if (!AREA_TOOLS.includes(tool)) {
@@ -1068,7 +1200,8 @@ function clearAll() {
   const keepLabel = (l) => world.isStartLabel(l);
   const keepPerson = (p) => world.isStartPerson(p);
   const keepDoor = (d) => world.isStartDoor(d);
-  let anything = world.labels.some((l) => !keepLabel(l)) || world.people.some((p) => !keepPerson(p)) || world.doors.some((d) => !keepDoor(d));
+  const keepLight = (l) => world.isStartLight(l);
+  let anything = world.labels.some((l) => !keepLabel(l)) || world.people.some((p) => !keepPerson(p)) || world.doors.some((d) => !keepDoor(d)) || world.lights.some((l) => !keepLight(l));
   for (let i = 0; i < world.cells.length && !anything; i++) {
     const id = world.cells[i];
     if (id) {
@@ -1081,10 +1214,10 @@ function clearAll() {
     return;
   }
   if (!confirm('Clear everything you added? What was there when you started or opened this diorama (like the grass and a tree) stays. You can undo this with Cmd/Ctrl+Z.')) return;
-  const r = world.clearRegion([0, 0, 0], [world.sx - 1, world.height - 1, world.sz - 1], { keep, keepLabel, keepPerson, keepDoor });
+  const r = world.clearRegion([0, 0, 0], [world.sx - 1, world.height - 1, world.sz - 1], { keep, keepLabel, keepPerson, keepDoor, keepLight });
   selection = null;
   view.showSelection(null);
-  const extra = [r.labels ? `${r.labels} sign${r.labels > 1 ? 's' : ''}` : '', r.people ? `${r.people} ${r.people > 1 ? 'people' : 'person'}` : '', r.doors ? `${r.doors} door${r.doors > 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ');
+  const extra = [r.labels ? `${r.labels} sign${r.labels > 1 ? 's' : ''}` : '', r.people ? `${r.people} ${r.people > 1 ? 'people' : 'person'}` : '', r.doors ? `${r.doors} door${r.doors > 1 ? 's' : ''}` : '', r.lights ? (r.lights > 1 ? `${r.lights} lamps and switches` : '1 lamp or switch') : ''].filter(Boolean).join(' and ');
   toast(`Cleared ${r.blocks} blocks${extra ? ' and ' + extra : ''}. The starting scene stays. Cmd/Ctrl+Z brings it all back.`);
   updateStatus();
 }
@@ -1092,7 +1225,7 @@ function clearAll() {
 function deleteSelection() {
   if (!selection) return false;
   const r = world.clearRegion(selection.a, selection.b);
-  if (!r.blocks && !r.labels && !r.doors) {
+  if (!r.blocks && !r.labels && !r.doors && !r.lights) {
     toast('Nothing to delete in that area.');
     return true;
   }
@@ -1390,6 +1523,23 @@ function wireUI() {
     if (view.looking) return toast('Finish looking through the person to add a Door step. Play and Wait still work.');
     if (!view.animating) setAnimMode('door', 'Click the door to open or close.');
   };
+  $('#animLight').onclick = () => {
+    if (view.looking) return toast('Finish looking through the person to add a Switch step. Play and Wait still work.');
+    if (!view.animating) setAnimMode('light', 'Click the switch to flip (the lamps with its number go on or off).');
+  };
+  $('#lightLamp').onclick = $('#lightSwitch').onclick = (e) => {
+    lightKind = e.currentTarget.dataset.kind;
+    lightSel = null;
+    syncLightBar();
+  };
+  $('#lightMode').onchange = $('#lightGroup').onchange = applyLightControls;
+  $$('#lightTimes input').forEach((b) => (b.onchange = applyLightControls));
+  $('#lightFlip').onclick = () => {
+    const l = world.getLight(lightSel);
+    if (l && l.kind === 'switch') flipSwitch(l);
+  };
+  $('#lightRemove').onclick = () => lightSel != null && world.removeLight(lightSel);
+  $('#lightDone').onclick = () => setTool('build');
   $('#animWait').onclick = () => !view.animating && addAnimStep({ type: 'wait', seconds: 1 });
   $('#animPlay').onclick = () => playAnimation();
   $('#animRecord').onclick = recordAnimation;
@@ -1452,6 +1602,7 @@ function wireUI() {
     else if (key === 'q') rotateClip();
     else if (key === 'm') setTool('mirror');
     else if (key === 'u') setTool('measure');
+    else if (key === 'l') setTool('light');
     else if (key === 'y') cycleSymmetry();
     else if (key === 'i') setTool('pick');
     else if (key === 't') setTool('label');
@@ -1464,6 +1615,12 @@ function wireUI() {
       if (tool === 'measure') {
         measureA = measureB = null;
         view.showMeasure(null);
+      }
+      if (tool === 'light') {
+        if (lightSel != null) {
+          lightSel = null;
+          syncLightBar();
+        } else setTool('build');
       }
       if (tool === 'paste' || tool === 'select' || tool === 'mirror') setTool('build');
       updateStatus();

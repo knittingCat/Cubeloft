@@ -5,7 +5,7 @@ import { WebSocketServer } from 'ws';
 // save); it only checks, again and again, that each person is still allowed to edit.
 //   authenticate(req) -> user row or null, canEdit(userId, dioramaId) -> bool
 const MAX_MESSAGE = 600 * 1024;
-const TYPES = new Set(['cells', 'labels', 'people', 'doors', 'state', 'want']);
+const TYPES = new Set(['cells', 'labels', 'people', 'doors', 'lights', 'state', 'want']);
 
 export function attachLive(server, { authenticate, canEdit }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
