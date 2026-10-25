@@ -211,6 +211,55 @@ export class DioramaView {
     this.region = new THREE.LineSegments(new THREE.EdgesGeometry(this.geometry), new THREE.LineBasicMaterial({ color: 0xffd23f }));
     this.region.visible = false;
     this.helpers.add(this.region);
+
+    // the Measure tool: an outline round each of the two cells, a line between their centres and a label on it
+    const outline = () => {
+      const o = new THREE.LineSegments(new THREE.EdgesGeometry(this.geometry), new THREE.LineBasicMaterial({ color: 0x4dd0e1, depthTest: false }));
+      o.visible = false;
+      o.renderOrder = 8;
+      this.helpers.add(o);
+      return o;
+    };
+    this.measureA = outline();
+    this.measureB = outline();
+    this.measureLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x4dd0e1, depthTest: false }));
+    this.measureLine.visible = false;
+    this.measureLine.renderOrder = 8;
+    this.helpers.add(this.measureLine);
+    this.measureLabel = null;
+  }
+
+  // Show a measurement between cells a and b (b may be null while only the first is chosen; a null hides it all).
+  showMeasure(a, b, label = '') {
+    this.dirty = true;
+    if (this.measureLabel) {
+      this.helpers.remove(this.measureLabel);
+      this.measureLabel.material.map.dispose();
+      this.measureLabel.material.dispose();
+      this.measureLabel = null;
+    }
+    this.measureA.visible = !!a;
+    this.measureB.visible = !!(a && b);
+    this.measureLine.visible = !!(a && b);
+    if (!a) return;
+    const centre = (c) => new THREE.Vector3(c[0] + 0.5 - this.offset, c[1] + 0.5, c[2] + 0.5 - this.offsetZ);
+    this.measureA.position.copy(centre(a));
+    this.measureA.scale.setScalar(1.03);
+    if (!b) return;
+    this.measureB.position.copy(centre(b));
+    this.measureB.scale.setScalar(1.03);
+    const pa = centre(a);
+    const pb = centre(b);
+    this.measureLine.geometry.setFromPoints([pa, pb]);
+    if (label) {
+      const mid = pa.clone().add(pb).multiplyScalar(0.5);
+      const sprite = this.makeLabelSprite(label);
+      sprite.position.set(mid.x, mid.y + 0.3, mid.z);
+      sprite.material.depthTest = false;
+      sprite.renderOrder = 9;
+      this.helpers.add(sprite);
+      this.measureLabel = sprite;
+    }
   }
 
   // ----- sky & lighting -----

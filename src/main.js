@@ -5,6 +5,7 @@ import { DioramaView } from './view.js';
 import { initAccount } from './account.js';
 import { api } from './api.js';
 import { createLive } from './live.js';
+import { measure } from './measure.js';
 import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, placement, symmetricCells } from './clipboard.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -124,7 +125,10 @@ let sharedMode = false;
 let hoverInfo = null;
 let selA = null; // first corner of a selection in progress (also used by the Mirror tool)
 let mirrorSel = null; // Mirror tool: the chosen area { a, b, clip, origin }, waiting for the mirror line
-const AREA_TOOLS = ['box', 'select', 'paste', 'mirror']; // tools where clicks mark corners or places, not blocks
+const AREA_TOOLS = ['box', 'select', 'paste', 'mirror', 'measure']; // tools where clicks mark corners or places, not blocks
+let measureA = null; // Measure tool: the first cell, then the second (a third click starts over)
+let measureB = null;
+let measureHoverKey = null; // the cell the live measuring line currently ends on
 let selection = null; // { a, b } finished selection
 let clip = null; // copied blocks (kept when you open another diorama)
 let lastTapKey = null; // touch: first tap previews the paste, second tap places it
@@ -208,6 +212,8 @@ function setTool(t) {
   boxA = null;
   selA = null;
   lastTapKey = null;
+  measureA = measureB = measureHoverKey = null;
+  view?.showMeasure(null);
   if (mirrorSel || was === 'mirror') {
     mirrorSel = null;
     view?.showMirrorLine(null);
@@ -246,10 +252,11 @@ function saveSuffix() {
 }
 
 function updateStatus() {
-  const names = { build: 'Build', erase: 'Erase', box: 'Box fill', pick: 'Pick', label: 'Sign', select: 'Select', paste: 'Paste', mirror: 'Mirror', person: 'Person', door: 'Door' };
+  const names = { build: 'Build', erase: 'Erase', box: 'Box fill', pick: 'Pick', label: 'Sign', select: 'Select', paste: 'Paste', mirror: 'Mirror', person: 'Person', door: 'Door', measure: 'Measure' };
   let hint = tool === 'box' ? (boxA ? ' — click the opposite corner' : ' — click a first corner') : '';
   if (tool === 'mirror') hint = mirrorSel ? ' — click where the mirror line should go (beside the area; the blue line shows it)' : selA ? ' — click the opposite corner of the area' : ' — click one corner of the area to mirror';
   if (tool === 'select') hint = selA ? ' — click the opposite corner' : selection ? ' — copied — press Paste' : ' — click one corner of the area';
+  if (tool === 'measure') hint = measureB ? ` — ${measure(measureA, measureB).text} (click again to measure something else)` : measureA ? ' — click the second block' : ' — click a block to start measuring from, then another to measure to';
   if (tool === 'person') hint = ' — click to put a person here, or click one to change their outfit';
   if (tool === 'door') hint = ' — click to place a door (it takes the planks colour you have selected), click one to open or close it, R turns it, Shift+R flips it to the other side';
   if (tool === 'paste') hint = clip ? ` — ${clip.w}×${clip.h}×${clip.d} footprint: move it, then click to place` : '';
@@ -342,8 +349,8 @@ function updateBanner(shared) {
   const viewingOthers = cloud && !cloud.mine;
   banner.hidden = !(shared || viewingOthers);
   $('#bannerText').textContent = viewingOthers
-    ? `Viewing “${cloud.title}” by ${cloud.owner}. Drag to look around, scroll to zoom.`
-    : "Viewing a shared diorama. Drag to look around, scroll to zoom.";
+    ? `Viewing “${cloud.title}” by ${cloud.owner}. Drag to look around, scroll to zoom, click a person to see through their eyes.`
+    : "Viewing a shared diorama. Drag to look around, scroll to zoom, click a person to see through their eyes.";
   $('#reportBtn').hidden = !(viewingOthers && accountApi);
   // Someone else's diorama: no toolbar, no palette, no editing.
   document.body.classList.toggle('viewonly', !banner.hidden);
@@ -556,6 +563,16 @@ function refreshHover(e) {
     const corner = hit.cell || hit.prev;
     view.showGhost(corner, { color: 0x4dd0e1, opacity: 0.3, scale: 1.03 });
     if (selA && corner) view.showRegion(selA, corner);
+    return;
+  }
+  if (tool === 'measure') {
+    const point = hit.cell || hit.prev;
+    view.showGhost(point, { color: 0x4dd0e1, opacity: 0.3, scale: 1.03 });
+    const key = point ? point.join(',') : null;
+    if (measureA && !measureB && point && key !== measureHoverKey) {
+      measureHoverKey = key; // the label is only redrawn when the pointer moves to another cell
+      view.showMeasure(measureA, point, measure(measureA, point).label); // follows the pointer until the second click
+    }
     return;
   }
   if (tool === 'mirror') {
@@ -789,7 +806,7 @@ function recordAnimation() {
 function stopLooking() {
   const r = view.exitPerson();
   $('#lookBar').hidden = true;
-  if (!r) return;
+  if (!r || isViewOnly()) return; // in someone else's diorama the person stays where they were
   const person = world.getPerson(r.id);
   const { id, ...next } = r;
   if (person && Object.keys(next).some((k) => person[k] !== next[k])) {
@@ -811,7 +828,15 @@ function personAtCells(hit) {
 }
 
 async function actAt(e, button) {
-  if (isViewOnly() || view.looking) return;
+  if (view.looking) return;
+  if (isViewOnly()) {
+    // someone else's diorama: nothing can be changed, but you can still see it through a person's eyes (clicking them)
+    if (button === 2 || e.shiftKey || view.flying) return;
+    const { ray, hit } = currentHit(e);
+    const id = view.personAt(ray) ?? personAtCells(hit);
+    if (id != null) startLooking(id);
+    return;
+  }
   if (animOpen()) return animClick(e, button); // while the Animate bar is open, clicks choose animation steps, not blocks
   const { ray, hit } = currentHit(e);
   if (movingPerson != null) {
@@ -887,6 +912,23 @@ async function actAt(e, button) {
       const h = Math.abs(selection.a[1] - selection.b[1]) + 1;
       const d = Math.abs(selection.a[2] - selection.b[2]) + 1;
       copySelection(`Selected ${w}×${h}×${d}`); // selecting copies automatically
+    }
+    updateStatus();
+    return;
+  }
+  if (tool === 'measure') {
+    const point = hit.cell || hit.prev;
+    if (!point) return;
+    if (!measureA || measureB) {
+      measureA = point; // first click, or a click after a finished measurement: start over
+      measureB = null;
+      measureHoverKey = null;
+      view.showMeasure(measureA, null);
+    } else {
+      measureB = point;
+      const m = measure(measureA, measureB);
+      view.showMeasure(measureA, measureB, m.label);
+      toast(m.text);
     }
     updateStatus();
     return;
@@ -1363,7 +1405,7 @@ function wireUI() {
   window.addEventListener('keydown', (e) => {
     if (view.looking) {
       if (e.key === 'Escape' || e.key === 'Enter') stopLooking();
-      else if (e.key.toLowerCase() === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey) toggleAnimBar();
+      else if (e.key.toLowerCase() === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey && !isViewOnly()) toggleAnimBar();
       return;
     }
     if (e.target.closest?.('input, textarea, select') || document.querySelector('dialog[open]')) return;
@@ -1409,6 +1451,7 @@ function wireUI() {
     else if (key === 'r') turnDoorAtPointer(e.shiftKey ? 2 : 1);
     else if (key === 'q') rotateClip();
     else if (key === 'm') setTool('mirror');
+    else if (key === 'u') setTool('measure');
     else if (key === 'y') cycleSymmetry();
     else if (key === 'i') setTool('pick');
     else if (key === 't') setTool('label');
@@ -1418,6 +1461,10 @@ function wireUI() {
       selection = null;
       view.showRegion(null, null);
       view.showSelection(null);
+      if (tool === 'measure') {
+        measureA = measureB = null;
+        view.showMeasure(null);
+      }
       if (tool === 'paste' || tool === 'select' || tool === 'mirror') setTool('build');
       updateStatus();
     }

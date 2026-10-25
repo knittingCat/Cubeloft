@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { World, encodeWorld, decodeWorld, cleanPerson, PERSON_DEFAULTS } from '../src/world.js';
+import { measure } from '../src/measure.js';
 
 let n = 0;
 const test = async (name, fn) => {
@@ -566,6 +567,17 @@ await test('animation: steps are cleaned, saved with the scene, and the ledge po
   w.setAnimation([]);
   assert.equal(w.animation.length, 0);
   assert.equal('animation' in w.meta, false);
+});
+
+await test('measure: steps along each axis, straight line and the box round both cells', async () => {
+  const m = measure([0, 0, 0], [5, 2, -3]);
+  assert.deepEqual([m.dx, m.dy, m.dz], [5, 2, -3]);
+  assert.deepEqual(m.box, [6, 3, 4]);
+  assert.equal(m.label, '6.2 blocks');
+  assert.equal(m.text, '5 east · 2 up · 3 north — straight line 6.2 — a box around both is 6×3×4');
+  assert.equal(measure([3, 0, 0], [0, 0, 0]).text.startsWith('3 west'), true);
+  assert.equal(measure([1, 4, 1], [1, 1, 1]).text.startsWith('3 down'), true);
+  assert.equal(measure([2, 2, 2], [2, 2, 2]).label, 'same block');
 });
 
 console.log(`${n} tests passed`);
