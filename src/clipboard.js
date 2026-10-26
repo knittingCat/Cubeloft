@@ -1,5 +1,6 @@
 // Copy / paste of block regions. Pure functions (no DOM), so they can be tested in Node.
 // A clip is { w, h, d, cells: [[dx, dy, dz, id], ...] (non-empty blocks only), labels: [{ dx, dy, dz, text }] }.
+import { turnStair, flipStair } from './blocks.js';
 
 export function normalizeBox(a, b) {
   return {
@@ -34,7 +35,7 @@ export function rotate90(clip) {
     w: d,
     h,
     d: w,
-    cells: clip.cells.map(([x, y, z, id]) => [d - 1 - z, y, x, id]),
+    cells: clip.cells.map(([x, y, z, id]) => [d - 1 - z, y, x, turnStair(id, 1)]),
     labels: clip.labels.map((l) => ({ dx: d - 1 - l.dz, dy: l.dy, dz: l.dx, text: l.text })),
   };
 }
@@ -45,7 +46,7 @@ export function mirrorX(clip) {
     w: clip.w,
     h: clip.h,
     d: clip.d,
-    cells: clip.cells.map(([x, y, z, id]) => [clip.w - 1 - x, y, z, id]),
+    cells: clip.cells.map(([x, y, z, id]) => [clip.w - 1 - x, y, z, flipStair(id, 'x')]),
     labels: clip.labels.map((l) => ({ dx: clip.w - 1 - l.dx, dy: l.dy, dz: l.dz, text: l.text })),
   };
 }
@@ -93,7 +94,7 @@ export function mirrorPlacement(world, clip, origin, line) {
   for (const [dx, dy, dz, id] of clip.cells) {
     const y = origin[1] + dy;
     const [x, z] = flip(origin[0] + dx, origin[2] + dz);
-    if (inside(x, y, z)) cells.push([x, y, z, id]);
+    if (inside(x, y, z)) cells.push([x, y, z, flipStair(id, line.axis)]);
     else dropped++;
   }
   const labels = [];
@@ -119,6 +120,21 @@ export function placement(world, clip, origin) {
   const cells = clip.cells.map(([dx, dy, dz, id]) => [origin[0] + dx, origin[1] + dy, origin[2] + dz, id]);
   const labels = clip.labels.map((l) => ({ x: origin[0] + l.dx, y: origin[1] + l.dy, z: origin[2] + l.dz, text: l.text }));
   return { fits, cells, labels };
+}
+
+// Like symmetricCells, but returns [x, y, z, id] with `id` as it looks in each mirror image (stairs turn to face the right way).
+export function symmetricPlacements(cells, mode, sx, sz, id) {
+  const seen = new Map();
+  const add = (x, y, z, v) => {
+    if (!seen.has(`${x},${y},${z}`)) seen.set(`${x},${y},${z}`, [x, y, z, v]); // a cell you pointed at keeps its own direction
+  };
+  for (const [x, y, z] of cells) add(x, y, z, id);
+  for (const [x, y, z] of cells) {
+    if (mode.includes('x')) add(sx - 1 - x, y, z, flipStair(id, 'x'));
+    if (mode.includes('z')) add(x, y, sz - 1 - z, flipStair(id, 'z'));
+    if (mode === 'xz') add(sx - 1 - x, y, sz - 1 - z, turnStair(id, 2));
+  }
+  return [...seen.values()];
 }
 
 // Symmetric building: repeat cells across the middle of the diorama.

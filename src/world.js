@@ -1,7 +1,10 @@
 // Pure voxel-world logic: no DOM, no three.js. Cell (x, y, z): x/z in [0, size), y in [0, HEIGHT).
 // A cell occupies [x, x+1] x [y, y+1] x [z, z+1]; the diorama stand's top surface is the plane y = 0.
 
+import { isStair } from './blocks.js';
+
 export const HEIGHT = 32;
+export const STAIR_STEP = 1 / 3; // each stair block has three steps, this much higher than the one before
 
 // ---- people (decorative figures with a customizable outfit; not part of the block grid) ----
 export const PERSON_CHOICES = {
@@ -160,6 +163,11 @@ export class World {
   }
   get(x, y, z) {
     return this.inBounds(x, y, z) ? this.cells[this.index(x, y, z)] : 0;
+  }
+  // How far below the cell's floor a person standing in (x, y, z) is: on top of a stair block they stand on its middle step,
+  // a third of a block lower than the top of the block.
+  standOffset(x, y, z) {
+    return isStair(this.get(x, y - 1, z)) ? -STAIR_STEP : 0;
   }
   coords(i) {
     const x = i % this.sx;

@@ -38,4 +38,31 @@ export const BLOCKS = [
   { id: 35, name: 'Violet planks', tex: 'planks:140,70,170' },
 ];
 
-export const BLOCK_BY_ID = new Map(BLOCKS.map((b) => [b.id, b]));
+// ---- stairs: a block variant with three steps (heights 1/3, 2/3, 1). A stair is stored in the grid as its own id, one per
+// block it can be made of and per direction, so saving, undo, copying and live sync need nothing extra.
+// rot = the way you climb: 0 north (-z), 1 east (+x), 2 south (+z), 3 west (-x); the tall end is that side.
+export const STAIR_BASE = 36;
+export const STAIR_SOURCES = BLOCKS.filter((b) => b.id !== 9 && b.id !== 10).map((b) => b.id); // anything but flowing water and lava
+export const stairId = (base, rot) => {
+  const i = STAIR_SOURCES.indexOf(base);
+  return i < 0 ? 0 : STAIR_BASE + i * 4 + (((rot % 4) + 4) % 4);
+};
+export const STAIR_BLOCKS = STAIR_SOURCES.flatMap((base, i) => {
+  const b = BLOCKS.find((x) => x.id === base);
+  return [0, 1, 2, 3].map((rot) => ({ ...b, id: STAIR_BASE + i * 4 + rot, name: `${b.name} stairs`, stair: { base, rot } }));
+});
+export const ALL_BLOCKS = [...BLOCKS, ...STAIR_BLOCKS];
+export const BLOCK_BY_ID = new Map(ALL_BLOCKS.map((b) => [b.id, b]));
+export const isStair = (id) => id >= STAIR_BASE && BLOCK_BY_ID.get(id)?.stair != null;
+// The same stair turned by `quarters` quarter turns clockwise seen from above (other ids come back unchanged).
+export const turnStair = (id, quarters) => {
+  const s = BLOCK_BY_ID.get(id)?.stair;
+  return s ? stairId(s.base, s.rot + quarters) : id;
+};
+// The same stair seen in a mirror: axis 'x' flips left-right (east and west swap), 'z' flips front-back.
+export const flipStair = (id, axis) => {
+  const s = BLOCK_BY_ID.get(id)?.stair;
+  if (!s) return id;
+  const flipped = axis === 'x' ? [0, 3, 2, 1][s.rot] : [2, 1, 0, 3][s.rot];
+  return stairId(s.base, flipped);
+};

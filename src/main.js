@@ -1,12 +1,12 @@
 import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS, MAX_ANIMATION_STEPS, LIGHT_SIDES } from './world.js';
-import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
+import { BLOCKS, BLOCK_BY_ID, stairId } from './blocks.js';
 import { textureCanvas, topTextureName } from './textures.js';
 import { DioramaView } from './view.js';
 import { initAccount } from './account.js';
 import { api } from './api.js';
 import { createLive } from './live.js';
 import { measure } from './measure.js';
-import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, placement, symmetricCells } from './clipboard.js';
+import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, placement, symmetricCells, symmetricPlacements } from './clipboard.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -120,6 +120,8 @@ let world;
 let view;
 let tool = 'build';
 let selected = 1;
+let stairs = false; // building places stairs made of the selected block (not water or lava)
+let stairRot = 0; // the way the next stairs climb: 0 north, 1 east, 2 south, 3 west
 let boxA = null;
 let sharedMode = false;
 let hoverInfo = null;
@@ -201,6 +203,30 @@ for (const block of BLOCKS) {
   palette.appendChild(btn);
 }
 
+// Stairs: a switch in front of the blocks (G) that makes building place stairs of the selected block, and a button to turn them (R).
+{
+  const stairIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18V3h-6v6h-6v6H3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
+  const stairBtn = document.createElement('button');
+  stairBtn.id = 'stairBtn';
+  stairBtn.className = 'stairswitch';
+  stairBtn.title = 'Stairs (G): place stairs made of the selected block, three steps in one block. R turns them. Walk up them with a person or in first person';
+  stairBtn.setAttribute('aria-label', 'Stairs');
+  stairBtn.innerHTML = `${stairIcon}<kbd>G</kbd>`;
+  stairBtn.addEventListener('click', () => {
+    setStairs(!stairs);
+    if (stairs && tool !== 'build' && tool !== 'box') setTool('build');
+  });
+  const turnBtn = document.createElement('button');
+  turnBtn.id = 'stairTurn';
+  turnBtn.className = 'stairswitch';
+  turnBtn.hidden = true;
+  turnBtn.title = 'Turn the stairs a quarter turn (R). The arrow shows which way you climb';
+  turnBtn.setAttribute('aria-label', 'Turn stairs');
+  turnBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  turnBtn.addEventListener('click', () => turnStairs(1));
+  palette.prepend(stairBtn, turnBtn);
+}
+
 function selectBlock(id) {
   selected = id;
   $$('.swatch').forEach((b) => b.classList.toggle('selected', Number(b.dataset.id) === id));
@@ -236,6 +262,30 @@ function setTool(t) {
 // A cell and its mirror images, for symmetric building.
 const withSymmetry = (cells) => symmetricCells(cells, symmetry, world.sx, world.sz);
 
+// What building puts down: the selected block, or stairs made of it (turned the right way in each mirror image).
+const placeId = () => (stairs && stairId(selected, stairRot)) || selected;
+const placements = (cells) => symmetricPlacements(cells, symmetry, world.sx, world.sz, placeId());
+
+function syncStairs() {
+  $('#stairBtn').classList.toggle('selected', stairs);
+  $('#stairTurn').hidden = !stairs;
+  $('#stairTurn').style.setProperty('--turn', `${stairRot * 90}deg`);
+  updateStatus();
+  refreshHover();
+}
+function setStairs(on) {
+  stairs = on;
+  if (on && !stairId(selected, 0)) toast('Water and lava cannot be made into stairs, so they are placed as blocks.');
+  syncStairs();
+}
+function turnStairs(quarters = 1) {
+  if (!stairs) setStairs(true);
+  else {
+    stairRot = (((stairRot + quarters) % 4) + 4) % 4;
+    syncStairs();
+  }
+}
+
 function cycleSymmetry() {
   symmetry = SYMMETRY_MODES[(SYMMETRY_MODES.indexOf(symmetry) + 1) % SYMMETRY_MODES.length];
   view.showSymmetry(symmetry);
@@ -266,7 +316,7 @@ function updateStatus() {
   if (tool === 'person') hint = ' — click to put a person here, or click one to change their outfit';
   if (tool === 'door') hint = ' — click to place a door (it takes the planks colour you have selected), click one to open or close it, R turns it, Shift+R flips it to the other side';
   if (tool === 'paste') hint = clip ? ` — ${clip.w}×${clip.h}×${clip.d} footprint: move it, then click to place` : '';
-  $('#status').textContent = `${world.count()} blocks · ${names[tool]}${hint} · ${BLOCK_BY_ID.get(selected).name}${symmetry !== 'off' ? ' · symmetry: ' + SYMMETRY_NAMES[symmetry] : ''}${saveSuffix() ? ' · ' + saveSuffix() : ''}`;
+  $('#status').textContent = `${world.count()} blocks · ${names[tool]}${hint} · ${BLOCK_BY_ID.get(selected).name}${stairs && stairId(selected, 0) ? ' stairs (R turns them)' : ''}${symmetry !== 'off' ? ' · symmetry: ' + SYMMETRY_NAMES[symmetry] : ''}${saveSuffix() ? ' · ' + saveSuffix() : ''}`;
   $('#undo').disabled = !world.undoStack.length;
   $('#redo').disabled = !world.redoStack.length;
 }
@@ -621,7 +671,7 @@ function refreshHover(e) {
     view.showGhost(hit.cell, { color: 0xff4d4d, opacity: 0.45, scale: 1.03 });
     if (tool !== 'box' && hit.cell) view.showMirrorGhosts(otherCells(hit.cell), { color: 0xff4d4d, opacity: 0.45, scale: 1.03 });
   } else {
-    const style = { color: view.setGhostTint(block), opacity: block.alpha ? 0.4 : 0.55 };
+    const style = { color: view.setGhostTint(block), opacity: block.alpha ? 0.4 : 0.55, stair: stairs && stairId(selected, 0) ? stairRot : null };
     view.showGhost(hit.prev, style);
     if (tool !== 'box' && hit.prev) view.showMirrorGhosts(otherCells(hit.prev), style);
   }
@@ -1118,7 +1168,11 @@ async function actAt(e, button) {
   }
   if (tool === 'pick') {
     if (hit.cell) {
-      selectBlock(world.get(...hit.cell));
+      const picked = BLOCK_BY_ID.get(world.get(...hit.cell));
+      stairs = !!picked?.stair; // picking a stair also picks which way it climbs
+      if (picked?.stair) stairRot = picked.stair.rot;
+      selectBlock(picked?.stair ? picked.stair.base : world.get(...hit.cell));
+      syncStairs();
       setTool('build');
     }
     return;
@@ -1137,8 +1191,8 @@ async function actAt(e, button) {
       updateStatus();
       return;
     }
-    const cells = withSymmetry(world.boxCells(boxA, target));
-    world.setMany(cells.map(([x, y, z]) => [x, y, z, erasing ? 0 : selected]));
+    const cells = world.boxCells(boxA, target);
+    world.setMany(erasing ? withSymmetry(cells).map(([x, y, z]) => [x, y, z, 0]) : placements(cells));
     boxA = null;
     view.showRegion(null, null);
     updateStatus();
@@ -1147,7 +1201,7 @@ async function actAt(e, button) {
   if (erasing) {
     if (hit.cell) world.setMany(withSymmetry([hit.cell]).map(([x, y, z]) => [x, y, z, 0]));
   } else if (hit.prev) {
-    world.setMany(withSymmetry([hit.prev]).map(([x, y, z]) => [x, y, z, selected]));
+    world.setMany(placements([hit.prev]));
   }
 }
 
@@ -1164,15 +1218,17 @@ function placeAtPointer(e) {
     return;
   }
   const { hit } = currentHit(hoverInfo);
-  if (hit && hit.prev) world.setMany(withSymmetry([hit.prev]).map(([x, y, z]) => [x, y, z, selected]));
+  if (hit && hit.prev) world.setMany(placements([hit.prev]));
   refreshHover();
 }
 
 // R: turn the door under the pointer a quarter turn; Shift+R: flip it to the opposite edge of its block.
 function turnDoorAtPointer(quarters = 1) {
-  if (!hoverInfo || isViewOnly() || view.looking || AREA_TOOLS.includes(tool)) return;
+  if (!hoverInfo || isViewOnly() || view.looking || AREA_TOOLS.includes(tool)) return false;
   const id = view.doorAt(currentHit(hoverInfo).ray);
-  if (id != null) world.changeDoor(id, { rot: world.getDoor(id).rot + quarters });
+  if (id == null) return false;
+  world.changeDoor(id, { rot: world.getDoor(id).rot + quarters });
+  return true;
 }
 
 function copySelection(prefix = '') {
@@ -1598,7 +1654,12 @@ function wireUI() {
     else if (key === 'v') clip ? setTool('paste') : toast('Nothing to paste yet — use Select on an area first.');
     else if (key === 'h') setTool('person');
     else if (key === 'd') setTool('door');
-    else if (key === 'r') turnDoorAtPointer(e.shiftKey ? 2 : 1);
+    else if (key === 'r') {
+      if (!turnDoorAtPointer(e.shiftKey ? 2 : 1) && stairs && !AREA_TOOLS.includes(tool)) turnStairs(e.shiftKey ? -1 : 1); // a door under the pointer first, otherwise the stairs
+    } else if (key === 'g') {
+      setStairs(!stairs);
+      if (stairs && tool !== 'build' && tool !== 'box') setTool('build');
+    }
     else if (key === 'q') rotateClip();
     else if (key === 'm') setTool('mirror');
     else if (key === 'u') setTool('measure');

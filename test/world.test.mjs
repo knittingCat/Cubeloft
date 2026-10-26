@@ -654,4 +654,45 @@ await test('measure: steps along each axis, straight line and the box round both
   assert.equal(measure([2, 2, 2], [2, 2, 2]).label, 'same block');
 });
 
+await test('stairs: ids are unique per block and direction, and turn and flip like the clipboard says', async () => {
+  const { BLOCKS, BLOCK_BY_ID, STAIR_BLOCKS, stairId, isStair, turnStair, flipStair } = await import('../src/blocks.js');
+  const ids = new Set([...BLOCKS, ...STAIR_BLOCKS].map((b) => b.id));
+  assert.equal(ids.size, BLOCKS.length + STAIR_BLOCKS.length);
+  assert.equal(Math.max(...ids) < 256, true);
+  assert.equal(stairId(9, 0), 0, 'water cannot be stairs');
+  assert.equal(stairId(10, 0), 0, 'lava cannot be stairs');
+  assert.equal(BLOCK_BY_ID.get(stairId(3, 2)).name, 'Stone stairs');
+  assert.equal(isStair(stairId(3, 2)), true);
+  assert.equal(isStair(3), false);
+  assert.equal(BLOCK_BY_ID.get(turnStair(stairId(3, 3), 1)).stair.rot, 0);
+  assert.equal(turnStair(3, 1), 3);
+  const east = stairId(12, 1);
+  assert.equal(flipStair(east, 'x'), stairId(12, 3)); // left-right: east and west swap
+  assert.equal(flipStair(east, 'z'), east); // front-back leaves east alone
+  assert.equal(flipStair(stairId(12, 0), 'z'), stairId(12, 2));
+});
+
+await test('stairs: clipboard rotate and mirror turn them; symmetric building mirrors them', async () => {
+  const { stairId } = await import('../src/blocks.js');
+  const { symmetricPlacements } = await import('../src/clipboard.js');
+  const clip = { w: 2, h: 1, d: 1, cells: [[0, 0, 0, stairId(3, 1)]], labels: [] };
+  assert.equal(rotate90(clip).cells[0][3], stairId(3, 2)); // east turned clockwise climbs south
+  assert.equal(mirrorX(clip).cells[0][3], stairId(3, 3));
+  const placed = symmetricPlacements([[0, 0, 0]], 'x', 5, 5, stairId(3, 1));
+  assert.deepEqual(placed.map((p) => p[3]), [stairId(3, 1), stairId(3, 3)]);
+  const middle = symmetricPlacements([[2, 0, 0]], 'x', 5, 5, stairId(3, 1)); // the middle cell is its own mirror image: it keeps its direction
+  assert.deepEqual(middle, [[2, 0, 0, stairId(3, 1)]]);
+});
+
+await test('stairs: people standing on a stair block stand on its middle step', async () => {
+  const { stairId } = await import('../src/blocks.js');
+  const w = new World(8);
+  w.setMany([[2, 0, 2, stairId(3, 0)], [3, 0, 2, 3]]);
+  assert.equal(Math.abs(w.standOffset(2, 1, 2) + 1 / 3) < 1e-9, true);
+  assert.equal(w.standOffset(3, 1, 2), 0);
+  assert.equal(w.standOffset(2, 0, 2), 0);
+  const back = await decodeWorld(await encodeWorld(w));
+  assert.equal(back.get(2, 0, 2), stairId(3, 0), 'stairs survive save and load');
+});
+
 console.log(`${n} tests passed`);

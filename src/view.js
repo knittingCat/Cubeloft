@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/OrbitControls.js';
-import { BLOCKS, BLOCK_BY_ID } from './blocks.js';
+import { ALL_BLOCKS, BLOCK_BY_ID, isStair } from './blocks.js';
+import { stairGeometry } from './stairgeo.js';
 import { textureCanvas, doorCanvas } from './textures.js';
 import { DOOR_THICKNESS, LIGHT_SIDES, lampLit } from './world.js';
 import { computeLight, faceLevels, brightness, glowAmount, NO_EDGE_LIGHT } from './light.js';
@@ -106,7 +107,10 @@ export class DioramaView {
     this.resize();
 
     world.onChange((e) => {
-      if (e.type === 'cells') this.rebuild(new Set(e.changes.flatMap((c) => [c.from, c.to])));
+      if (e.type === 'cells') {
+        this.rebuild(new Set(e.changes.flatMap((c) => [c.from, c.to])));
+        if (e.changes.some((c) => isStair(c.from) || isStair(c.to))) this.rebuildPeople(); // people on a stair block stand lower
+      }
       else if (e.type === 'labels') this.rebuildLabels();
       else if (e.type === 'people') this.rebuildPeople();
       else if (e.type === 'doors') this.rebuildDoors();
@@ -449,8 +453,8 @@ export class DioramaView {
   }
 
   // A copy of the cube geometry with the per-instance face light attributes (all full bright until updateLighting fills them in).
-  lightGeometry(capacity) {
-    const geo = this.geometry.clone();
+  lightGeometry(capacity, block) {
+    const geo = (block?.stair ? stairGeometry(block.stair.rot) : this.geometry).clone();
     for (const name of ['lightA', 'lightB']) geo.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3).fill(1), 3));
     for (const name of ['glowA', 'glowB']) geo.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3));
     return geo;
@@ -486,7 +490,7 @@ export class DioramaView {
 
   // ----- voxel meshes -----
   rebuildAll() {
-    this.rebuild(new Set(BLOCKS.map((b) => b.id)));
+    this.rebuild(new Set(ALL_BLOCKS.map((b) => b.id)));
   }
 
   rebuild(types) {
@@ -505,6 +509,7 @@ export class DioramaView {
       const block = BLOCK_BY_ID.get(id);
       if (!block) continue;
       let entry = this.typeMeshes.get(id);
+      if (!entry && !idx.length) continue; // no mesh until the first block of this kind (there are a lot of stair kinds)
       if (!entry || entry.capacity < idx.length) {
         if (entry) {
           this.scene.remove(entry.mesh);
@@ -512,7 +517,7 @@ export class DioramaView {
           entry.mesh.dispose();
         }
         const capacity = Math.max(256, 2 ** Math.ceil(Math.log2(Math.max(idx.length, 1))));
-        const mesh = new THREE.InstancedMesh(this.lightGeometry(capacity), this.blockMaterials(block), capacity);
+        const mesh = new THREE.InstancedMesh(this.lightGeometry(capacity, block), this.blockMaterials(block), capacity);
         mesh.frustumCulled = false;
         mesh.castShadow = !block.alpha && !block.glow; // glowing blocks are light sources: no dark shadow under them
         mesh.receiveShadow = true;
@@ -692,7 +697,10 @@ export class DioramaView {
     this.showSymmetry(this.symMode || 'off'); // planes follow the new stand size
     world.onChange((e) => {
       if (world !== this.world) return;
-      if (e.type === 'cells') this.rebuild(new Set(e.changes.flatMap((c) => [c.from, c.to])));
+      if (e.type === 'cells') {
+        this.rebuild(new Set(e.changes.flatMap((c) => [c.from, c.to])));
+        if (e.changes.some((c) => isStair(c.from) || isStair(c.to))) this.rebuildPeople(); // people on a stair block stand lower
+      }
       else if (e.type === 'labels') this.rebuildLabels();
       else if (e.type === 'people') this.rebuildPeople();
       else if (e.type === 'doors') this.rebuildDoors();
@@ -976,7 +984,7 @@ export class DioramaView {
         this.scene.add(entry.group);
         this.personGroups.set(p.id, entry);
       }
-      entry.group.position.set(p.x + 0.5 - off, p.y, p.z + 0.5 - offZ);
+      entry.group.position.set(p.x + 0.5 - off, p.y + this.world.standOffset(p.x, p.y, p.z), p.z + 0.5 - offZ); // on a stair block: down on its middle step
     }
   }
 
@@ -1199,11 +1207,11 @@ export class DioramaView {
         const p = world.getPerson(s.person);
         if (!p) continue;
         if (!people.has(p.id)) {
-          const at = { x: p.x + 0.5, y: p.y, z: p.z + 0.5, facing: ((p.rot * 3 + p.twist) * Math.PI) / 6 };
+          const at = { x: p.x + 0.5, y: p.y + world.standOffset(p.x, p.y, p.z), z: p.z + 0.5, facing: ((p.rot * 3 + p.twist) * Math.PI) / 6 };
           people.set(p.id, { start: { ...at }, segs: [], at });
         }
         const rec = people.get(p.id);
-        const to = { x: s.x + 0.5, y: s.y, z: s.z + 0.5 };
+        const to = { x: s.x + 0.5, y: s.y + world.standOffset(s.x, s.y, s.z), z: s.z + 0.5 };
         const L = Math.hypot(to.x - rec.at.x, to.z - rec.at.z);
         if (L < 0.01) continue;
         const heading = Math.atan2(to.x - rec.at.x, to.z - rec.at.z);
@@ -1215,7 +1223,7 @@ export class DioramaView {
         const p = world.getPerson(s.person);
         if (!p) continue;
         if (!people.has(p.id)) {
-          const at = { x: p.x + 0.5, y: p.y, z: p.z + 0.5, facing: ((p.rot * 3 + p.twist) * Math.PI) / 6 };
+          const at = { x: p.x + 0.5, y: p.y + world.standOffset(p.x, p.y, p.z), z: p.z + 0.5, facing: ((p.rot * 3 + p.twist) * Math.PI) / 6 };
           people.set(p.id, { start: { ...at }, segs: [], at });
         }
         const rec = people.get(p.id);
@@ -1554,7 +1562,7 @@ export class DioramaView {
     L.headPitch = Math.max(-0.7, Math.min(0.7, L.headPitch));
     const off = this.offset;
     const offZ = this.offsetZ;
-    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + (lying ? 0.55 : L.pose === 'sitting' || L.pose === 'ledge' ? 0.9 : 1.4), L.z + 0.5 - offZ);
+    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + this.world.standOffset(L.x, L.y, L.z) + (lying ? 0.55 : L.pose === 'sitting' || L.pose === 'ledge' ? 0.9 : 1.4), L.z + 0.5 - offZ);
     if (lying) at.add(new THREE.Vector3(-1.1 * Math.sin(a), 0, -1.1 * Math.cos(a))); // head end
     this.camera.position.copy(at);
     const pitch = Math.max(-1.4, Math.min(1.4, (lying ? -1.1 : 0) + L.headPitch));
@@ -1629,12 +1637,13 @@ export class DioramaView {
   }
 
   // ----- cursor visuals -----
-  showGhost(cell, { color = 0xffffff, opacity = 0.5, scale = 1.002 } = {}) {
+  showGhost(cell, { color = 0xffffff, opacity = 0.5, scale = 1.002, stair = null } = {}) {
     this.dirty = true;
     if (!cell) {
       this.ghost.visible = false;
       return;
     }
+    this.ghost.geometry = stair == null ? this.geometry : stairGeometry(stair); // stairs show their steps and which way they climb
     const off = this.offset;
     const offZ = this.offsetZ;
     this.ghost.position.set(cell[0] + 0.5 - off, cell[1] + 0.5, cell[2] + 0.5 - offZ);
