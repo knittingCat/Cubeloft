@@ -654,6 +654,25 @@ await test('measure: steps along each axis, straight line and the box round both
   assert.equal(measure([2, 2, 2], [2, 2, 2]).label, 'same block');
 });
 
+await test('light: a lamp lights a round ball, not a diamond', async () => {
+  const { computeLight } = await import('../src/light.js');
+  const w = new World(16);
+  const passes = (id) => id === 0;
+  const L = computeLight(w, passes, () => 0, [[8, 5, 8, 14]], { sky: false });
+  const at = (dx, dy, dz) => L[w.index(8 + dx, 5 + dy, 8 + dz)];
+  assert.equal(at(0, 0, 0), 14);
+  assert.equal(at(3, 0, 0), 11); // along an axis: one level per cell, as before
+  assert.equal(at(3, 0, 3), 10); // across the floor diagonal: 14 - 4.24 (a diamond would give 8)
+  assert.equal(at(2, 2, 2), 11); // a corner: 14 - 3.46
+  assert.equal(at(0, 0, 3), at(3, 0, 0)); // the same in every direction
+  assert.equal(at(0, 3, 0), at(3, 0, 0));
+  // a wall's corner does not let it through: two solid blocks touching only at an edge
+  const wall = new World(16);
+  wall.setMany([[9, 5, 8, 2], [8, 5, 9, 2]]);
+  const M = computeLight(wall, passes, () => 0, [[8, 5, 8, 14]], { sky: false });
+  assert.ok(M[wall.index(9, 5, 9)] < 14 - Math.SQRT2 - 0.5, 'light goes round the corner, not through it');
+});
+
 await test('stairs: ids are unique per block and direction, and turn and flip like the clipboard says', async () => {
   const { BLOCKS, BLOCK_BY_ID, STAIR_BLOCKS, stairId, isStair, turnStair, flipStair } = await import('../src/blocks.js');
   const ids = new Set([...BLOCKS, ...STAIR_BLOCKS].map((b) => b.id));

@@ -24,34 +24,6 @@ export function computeLight(world, passes, emit, sources = [], { sky = true } =
     }
   }
   const DIRS = [1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1];
-  // light sources: the cells next to a glowing block get its level minus one
-  for (let z = 0; z < sz; z++) {
-    for (let y = 0; y < sy; y++) {
-      for (let x = 0; x < sx; x++) {
-        const e = emit(cells[idx(x, y, z)]);
-        if (!e) continue;
-        for (let d = 0; d < DIRS.length; d += 3) {
-          const nx = x + DIRS[d];
-          const ny = y + DIRS[d + 1];
-          const nz = z + DIRS[d + 2];
-          if (nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz) continue;
-          const i = idx(nx, ny, nz);
-          if (passes(cells[i]) && levels[i] < e - 1) {
-            levels[i] = e - 1;
-            queue.push(nx, ny, nz);
-          }
-        }
-      }
-    }
-  }
-  for (const [x, y, z, level] of sources) {
-    if (x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz) continue;
-    const i = idx(x, y, z);
-    if (passes(cells[i]) && levels[i] < level) {
-      levels[i] = level;
-      queue.push(x, y, z);
-    }
-  }
   // spread: a lit cell lights its see-through neighbours one level lower (keep going until nothing gets brighter)
   for (let q = 0; q < queue.length; q += 3) {
     const x = queue[q];
@@ -70,6 +42,62 @@ export function computeLight(world, passes, emit, sources = [], { sky = true } =
         queue.push(nx, ny, nz);
       }
     }
+  }
+  // Point lights (glowing blocks and lamps) spread by real distance, so their light is a round ball and not the diamond that
+  // stepping one cell at a time makes: a step costs 1 along an axis, 1.41 across a face diagonal and 1.73 across a corner.
+  // A diagonal step is only taken when one of the cells beside it is open, so light does not leak through a wall's corner.
+  const near = new Float32Array(cells.length);
+  const spread = [];
+  const seed = (x, y, z, level) => {
+    if (x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz) return;
+    const i = idx(x, y, z);
+    if (passes(cells[i]) && near[i] < level) {
+      near[i] = level;
+      spread.push(x, y, z);
+    }
+  };
+  // the cells next to a glowing block get its level minus one
+  for (let z = 0; z < sz; z++) {
+    for (let y = 0; y < sy; y++) {
+      for (let x = 0; x < sx; x++) {
+        const e = emit(cells[idx(x, y, z)]);
+        if (!e) continue;
+        for (let d = 0; d < DIRS.length; d += 3) seed(x + DIRS[d], y + DIRS[d + 1], z + DIRS[d + 2], e - 1);
+      }
+    }
+  }
+  for (const [x, y, z, level] of sources) seed(x, y, z, level);
+  const open = (x, y, z) => x >= 0 && y >= 0 && z >= 0 && x < sx && y < sy && z < sz && passes(cells[idx(x, y, z)]);
+  for (let q = 0; q < spread.length; q += 3) {
+    const x = spread[q];
+    const y = spread[q + 1];
+    const z = spread[q + 2];
+    const here = near[idx(x, y, z)];
+    if (here <= 1) continue;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const axes = (dx !== 0) + (dy !== 0) + (dz !== 0);
+          if (!axes) continue;
+          const next = here - Math.sqrt(axes);
+          if (next <= 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          const nz = z + dz;
+          if (!open(nx, ny, nz)) continue;
+          if (axes > 1 && !((dx && open(x + dx, y, z)) || (dy && open(x, y + dy, z)) || (dz && open(x, y, z + dz)))) continue;
+          const i = idx(nx, ny, nz);
+          if (near[i] < next) {
+            near[i] = next;
+            spread.push(nx, ny, nz);
+          }
+        }
+      }
+    }
+  }
+  for (let i = 0; i < near.length; i++) {
+    const level = Math.round(near[i]);
+    if (level > levels[i]) levels[i] = level;
   }
   return levels;
 }
