@@ -28,6 +28,7 @@ const STRIDE = 1.5; // cells covered by one full leg cycle (two steps)
 const TURN_TIME = 0.3; // seconds spent turning on the spot before walking off
 const DOOR_TIME = 0.7; // seconds for a door to swing open or shut
 const SWITCH_TIME = 0.4; // seconds a switch step takes in the animation
+const HANG_REACH = 7; // a lamp hanging from a ceiling lights the floor strongly when it is this many blocks below, or closer
 const LAMP_LEVEL = 14; // the light level of the cell a lit lamp hangs in (a glowing block gives its level minus one next to it)
 const smooth = (u) => u * u * (3 - 2 * u);
 const angleDiff = (a, b) => ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI; // shortest signed turn from a to b
@@ -467,7 +468,7 @@ export class DioramaView {
     const w = this.world;
     const passes = (id) => id === 0 || !!BLOCK_BY_ID.get(id)?.alpha;
     const emit = (id) => Math.round((BLOCK_BY_ID.get(id)?.glow || 0) * 15);
-    const lamps = w.lights.filter((l) => this.lampIsLit(l)).map((l) => [...bulbCell(l), LAMP_LEVEL]); // a lamp on a string lights from its bulb
+    const lamps = w.lights.filter((l) => this.lampIsLit(l)).map((l) => [...bulbCell(l), LAMP_LEVEL, l.at === 2 ? HANG_REACH : 0]); // a lamp on a string lights from its bulb, and its aura reaches a floor within HANG_REACH blocks
     const levels = computeLight(w, passes, emit, lamps);
     const blockLevels = computeLight(w, passes, emit, lamps, { sky: false }); // lamps and glowing blocks on their own: faces they light shine a little
     for (const { mesh, cellIdx } of this.typeMeshes.values()) {

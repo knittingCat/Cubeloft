@@ -8,7 +8,8 @@ export const SKY_LEVEL = 15;
 
 // levels[i] is the light level (0-15) of cell i for cells light can be in (empty or see-through), 0 for solid cells.
 // passes(id) says whether light goes through a block; emit(id) gives the light level a block gives off (0 for most).
-// `sources` are extra lights standing in free cells (lit lamps): [x, y, z, level] each.
+// `sources` are extra lights standing in free cells (lit lamps): [x, y, z, level] each, or [x, y, z, level, down] for a lamp
+// that shines down (it also lights a cone below it, as far as `down` cells).
 // With { sky: false } only the glowing blocks and `sources` count (the "block light" on its own, used to make lit faces glow).
 export function computeLight(world, passes, emit, sources = [], { sky = true } = {}) {
   const { sx, sz, height: sy, cells } = world;
@@ -91,6 +92,37 @@ export function computeLight(world, passes, emit, sources = [], { sky = true } =
             near[i] = next;
             spread.push(nx, ny, nz);
           }
+        }
+      }
+    }
+  }
+  // A lamp that points at the floor (a fifth value on its source: how far down it shines) lights a cone below it more strongly, so
+  // its aura reaches a floor that is within that many cells. Only cells its light already reaches are brightened (no light through walls).
+  for (const [x, y, z, level, down = 0] of sources) {
+    for (let dy = 1; dy <= down; dy++) {
+      const reach = Math.min(1 + Math.floor(dy * 0.8), 6); // the cone widens as it goes down
+      for (let dz = -reach; dz <= reach; dz++) {
+        for (let dx = -reach; dx <= reach; dx++) {
+          const [cx, cy, cz] = [x + dx, y - dy, z + dz];
+          if (cx < 0 || cy < 0 || cz < 0 || cx >= sx || cy >= sy || cz >= sz) continue;
+          const i = idx(cx, cy, cz);
+          if (near[i] <= 0) continue;
+          const across = Math.hypot(dx, dz);
+          if (across > reach + 0.5) continue; // a round cone, not a square one
+          const dist = Math.hypot(dx, dy, dz);
+          const boosted = level - 0.35 * dist - 4 * (across / (reach + 0.5)) ** 2; // dimmer toward the edge, so it melts into the ordinary light
+          if (boosted <= near[i]) continue;
+          // only with a clear straight line from the bulb: a roof or a wall in between keeps the cell as dark as it was
+          let clear = true;
+          const steps = Math.ceil(dist * 2);
+          for (let s = 1; s < steps && clear; s++) {
+            const f = s / steps;
+            const px = Math.floor(x + 0.5 + dx * f);
+            const py = Math.floor(y + 0.5 - dy * f);
+            const pz = Math.floor(z + 0.5 + dz * f);
+            if (px >= 0 && py >= 0 && pz >= 0 && px < sx && py < sy && pz < sz && !passes(cells[idx(px, py, pz)])) clear = false;
+          }
+          if (clear) near[i] = boosted;
         }
       }
     }

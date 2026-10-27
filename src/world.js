@@ -74,7 +74,7 @@ export const LIGHT_TIMES = ['day', 'sunset', 'night'];
 export const LAMP_MODES = ['on', 'switch', 'time'];
 export const LIGHT_SIDES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]; // from the cell towards the side it is stuck to
 export const MAX_LIGHTS = 300;
-export const MAX_STRING = 6; // the longest string a hanging lamp can have, in cells
+export const MAX_STRING = HEIGHT - 1; // the longest string a hanging lamp can have, in cells (as long as the world is tall)
 // The cell a lamp's light comes from: for a lamp on a string, the bulb at the bottom of it.
 export const bulbCell = (l) => [l.x, l.y - (l.string || 0), l.z];
 export function cleanLight(l) {

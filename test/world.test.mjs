@@ -679,6 +679,31 @@ await test('lights: a lamp on a ceiling can hang on a string, and the light come
   assert.equal(w.getLight(lamp.id).string, 1, 'and undone');
 });
 
+await test('lights: a lamp that shines down lights a floor within 7 blocks strongly; a plain lamp and a farther floor are as before', async () => {
+  const { computeLight } = await import('../src/light.js');
+  const { MAX_STRING } = await import('../src/world.js');
+  assert.equal(MAX_STRING, 31);
+  const w = new World(16);
+  w.setMany(w.boxCells([0, 0, 0], [15, 0, 15]).map(([x, y, z]) => [x, y, z, 3])); // a stone floor; the air above it is y 1
+  const passes = (id) => id === 0;
+  const at = (L, x, y, z) => L[w.index(x, y, z)];
+  const plain = computeLight(w, passes, () => 0, [[8, 8, 8, 14]], { sky: false });
+  const down = computeLight(w, passes, () => 0, [[8, 8, 8, 14, 7]], { sky: false });
+  assert.equal(at(plain, 8, 1, 8), 7); // 7 blocks below: one level lost per block, as before
+  assert.equal(at(down, 8, 1, 8), 12); // an aura that reaches the floor
+  assert.equal(at(plain, 10, 1, 8) <= at(down, 10, 1, 8), true);
+  assert.equal(at(down, 8, 8, 8), 14);
+  // 8 blocks up is outside the aura's reach: the same as a plain lamp
+  const far = computeLight(w, passes, () => 0, [[8, 9, 8, 14, 7]], { sky: false });
+  const farPlain = computeLight(w, passes, () => 0, [[8, 9, 8, 14]], { sky: false });
+  assert.equal(at(far, 8, 1, 8), at(farPlain, 8, 1, 8));
+  // light still does not go through blocks: a roof block under the lamp keeps the floor under it dark
+  const roofed = new World(16);
+  roofed.setMany(roofed.boxCells([0, 0, 0], [15, 0, 15]).map(([x, y, z]) => [x, y, z, 3]).concat(roofed.boxCells([5, 4, 5], [11, 4, 11]).map(([x, y, z]) => [x, y, z, 3])));
+  const shut = computeLight(roofed, passes, () => 0, [[8, 8, 8, 14, 7]], { sky: false });
+  assert.equal(shut[roofed.index(8, 1, 8)] < 10, true);
+});
+
 await test('measure: counts the blocks in the box and finds its middle', async () => {
   const { countBlocks, centerOf, describe } = await import('../src/measure.js');
   const w = new World(12);

@@ -1,4 +1,4 @@
-import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS, MAX_ANIMATION_STEPS, LIGHT_SIDES, bulbCell } from './world.js';
+import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS, MAX_ANIMATION_STEPS, LIGHT_SIDES, bulbCell, MAX_STRING } from './world.js';
 import { BLOCKS, BLOCK_BY_ID, stairId } from './blocks.js';
 import { textureCanvas, topTextureName } from './textures.js';
 import { DioramaView } from './view.js';
@@ -708,7 +708,7 @@ const lightDefaults = { mode: 'on', group: 1, times: ['night'], string: 2 };
 
 function lightSettings() {
   const times = $$('#lightTimes input').filter((b) => b.checked).map((b) => b.dataset.time);
-  return { mode: $('#lightMode').value, group: Number($('#lightGroup').value), times, string: Number($('#lightString').value) };
+  return { mode: $('#lightMode').value, group: Number($('#lightGroup').value), times, string: Math.max(0, Math.min(MAX_STRING, Math.round(Number($('#lightString').value)) || 0)) };
 }
 
 function syncLightBar() {

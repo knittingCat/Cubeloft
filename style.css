@@ -169,6 +169,7 @@ body:has(#lookBar:not([hidden])) #measureBar, body:has(#flyBar:not([hidden])) #m
 #lightBar .lightRow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; }
 #lightBar .lightKinds { display: inline-flex; gap: .3rem; }
 #lightBar .lightKinds button.active { background: var(--accent, #5b8cff); border-color: var(--accent, #5b8cff); color: #fff; }
+#lightString { width: 4.2rem; }
 #lightBar label { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); }
 #lightTimes { display: inline-flex; gap: .6rem; }
 #lightHint { text-align: center; color: #facc15; min-height: 1.2em; }
