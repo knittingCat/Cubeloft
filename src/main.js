@@ -1,4 +1,4 @@
-import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS, MAX_ANIMATION_STEPS, LIGHT_SIDES } from './world.js';
+import { World, SIZES, encodeWorld, decodeWorld, PERSON_CHOICES, DOOR_WOODS, MAX_ANIMATION_STEPS, LIGHT_SIDES, bulbCell } from './world.js';
 import { BLOCKS, BLOCK_BY_ID, stairId } from './blocks.js';
 import { textureCanvas, topTextureName } from './textures.js';
 import { DioramaView } from './view.js';
@@ -704,19 +704,21 @@ function refreshHover(e) {
 // ---------- lights: lamps and switches ----------
 // The bar's controls show the settings of the selected lamp or switch (changing them changes it, one undo step each),
 // or, with nothing selected, the settings the next one you place will get.
-const lightDefaults = { mode: 'on', group: 1, times: ['night'] };
+const lightDefaults = { mode: 'on', group: 1, times: ['night'], string: 2 };
 
 function lightSettings() {
   const times = $$('#lightTimes input').filter((b) => b.checked).map((b) => b.dataset.time);
-  return { mode: $('#lightMode').value, group: Number($('#lightGroup').value), times };
+  return { mode: $('#lightMode').value, group: Number($('#lightGroup').value), times, string: Number($('#lightString').value) };
 }
 
 function syncLightBar() {
   if (!world) return;
   const l = lightSel != null ? world.getLight(lightSel) : null;
   const kind = l ? l.kind : lightKind;
-  const s = l ? { mode: l.mode || 'on', group: l.group, times: l.times || [] } : lightDefaults;
+  const s = l ? { mode: l.mode || 'on', group: l.group, times: l.times || [], string: l.string || 0 } : lightDefaults;
   $('#lightMode').value = s.mode;
+  $('#lightString').value = String(s.string);
+  $('#lightStringRow').hidden = !(kind === 'lamp' && (!l || l.at === 2)); // only a lamp on a ceiling can hang
   $('#lightGroup').value = String(s.group);
   $$('#lightTimes input').forEach((b) => (b.checked = s.times.includes(b.dataset.time)));
   $$('#lightBar [data-kind]').forEach((b) => b.classList.toggle('active', b.dataset.kind === kind));
@@ -732,7 +734,7 @@ function syncLightBar() {
   } else if (l) hint = `Selected switch ${l.group}: click it (in any tool) to flip every lamp numbered ${l.group}.`;
   $('#lightHint').textContent = hint;
   if (tool === 'light') {
-    view?.showRegion(l ? [l.x, l.y, l.z] : null, l ? [l.x, l.y, l.z] : null); // the selected one is outlined
+    view?.showRegion(l ? bulbCell(l) : null, l ? [l.x, l.y, l.z] : null); // the selected one is outlined (a hanging lamp: from its ceiling cell down to the bulb)
     updateStatus();
   }
 }
@@ -744,7 +746,11 @@ function applyLightControls() {
     Object.assign(lightDefaults, s);
     if (lightDefaults.mode === 'time' && !lightDefaults.times.length) lightDefaults.times = ['night'];
   } else if (l.kind === 'switch') world.changeLight(l.id, { group: s.group });
-  else world.changeLight(l.id, { mode: s.mode, group: s.group, times: s.times });
+  else {
+    const string = l.at === 2 ? s.string : 0;
+    if (string !== (l.string || 0) && !world.stringClear(l.x, l.y, l.z, string)) toast('Something is in the way of a string that long.');
+    else world.changeLight(l.id, { mode: s.mode, group: s.group, times: s.times, string });
+  }
   syncLightBar();
 }
 
@@ -777,9 +783,10 @@ function lightClick(ray, hit, erasing) {
   if (erasing || !hit || !hit.prev) return;
   const [x, y, z] = hit.prev;
   const at = hit.cell ? sideTowards(hit.prev, hit.cell) : 3; // stuck to the block it was clicked on, or standing on the floor
-  if (!world.canPlaceLight(x, y, z, at)) return toast(world.lights.length >= 300 ? 'That is the most lamps and switches (300).' : 'There is already one there, or the cell is not free.');
   const s = lightSettings();
-  const light = world.addLight(lightKind === 'switch' ? { kind: 'switch', x, y, z, at, group: s.group } : { kind: 'lamp', x, y, z, at, mode: s.mode, group: s.group, times: s.times });
+  const string = lightKind === 'lamp' && at === 2 ? s.string : 0; // a lamp on a ceiling hangs on a string
+  if (!world.canPlaceLight(x, y, z, at, null, string)) return toast(world.lights.length >= 300 ? 'That is the most lamps and switches (300).' : string ? 'There is already one there, or something is in the way of the string (try a shorter one).' : 'There is already one there, or the cell is not free.');
+  const light = world.addLight(lightKind === 'switch' ? { kind: 'switch', x, y, z, at, group: s.group } : { kind: 'lamp', x, y, z, at, mode: s.mode, group: s.group, times: s.times, string });
   if (light) {
     lightSel = light.id;
     syncLightBar();
@@ -1615,7 +1622,7 @@ function wireUI() {
     lightSel = null;
     syncLightBar();
   };
-  $('#lightMode').onchange = $('#lightGroup').onchange = applyLightControls;
+  $('#lightMode').onchange = $('#lightGroup').onchange = $('#lightString').onchange = applyLightControls;
   $$('#lightTimes input').forEach((b) => (b.onchange = applyLightControls));
   $('#lightFlip').onclick = () => {
     const l = world.getLight(lightSel);

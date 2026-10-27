@@ -3,7 +3,7 @@ import { OrbitControls } from '../vendor/OrbitControls.js';
 import { ALL_BLOCKS, BLOCK_BY_ID, isStair } from './blocks.js';
 import { stairGeometry } from './stairgeo.js';
 import { textureCanvas, doorCanvas } from './textures.js';
-import { DOOR_THICKNESS, LIGHT_SIDES, lampLit } from './world.js';
+import { DOOR_THICKNESS, LIGHT_SIDES, lampLit, bulbCell } from './world.js';
 import { computeLight, faceLevels, brightness, glowAmount, NO_EDGE_LIGHT } from './light.js';
 
 // Put a switch's number on the plate so it reads upright: on a wall it sits at the bottom end of the plate with the top of the
@@ -467,7 +467,7 @@ export class DioramaView {
     const w = this.world;
     const passes = (id) => id === 0 || !!BLOCK_BY_ID.get(id)?.alpha;
     const emit = (id) => Math.round((BLOCK_BY_ID.get(id)?.glow || 0) * 15);
-    const lamps = w.lights.filter((l) => this.lampIsLit(l)).map((l) => [l.x, l.y, l.z, LAMP_LEVEL]);
+    const lamps = w.lights.filter((l) => this.lampIsLit(l)).map((l) => [...bulbCell(l), LAMP_LEVEL]); // a lamp on a string lights from its bulb
     const levels = computeLight(w, passes, emit, lamps);
     const blockLevels = computeLight(w, passes, emit, lamps, { sky: false }); // lamps and glowing blocks on their own: faces they light shine a little
     for (const { mesh, cellIdx } of this.typeMeshes.values()) {
@@ -1137,7 +1137,23 @@ export class DioramaView {
       inner.add(m);
       return m;
     };
-    if (l.kind === 'lamp') {
+    if (l.kind === 'lamp' && l.at === 2) {
+      // hanging from the ceiling: a small canopy, a cord `string` cells long (plus a little), a shade open to the floor and the bulb under it
+      // (here +y points down at the floor)
+      const metal = 0x3f3f46;
+      const n = l.string || 0;
+      box(0.2, 0.05, 0.2, metal, -0.475); // the canopy against the ceiling
+      const top = n - 0.3; // where the shade starts
+      const cord = box(0.025, top + 0.5, 0.025, 0x1f2937, (top - 0.5) / 2);
+      const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.05, 0.2, 16, 1, true), new THREE.MeshLambertMaterial({ color: metal, side: THREE.DoubleSide }));
+      shade.position.set(0, top + 0.1, 0); // wide end toward the floor
+      inner.add(shade);
+      const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshBasicMaterial({ color: 0xfff1b0 }));
+      bulb.position.set(0, top + 0.2, 0);
+      inner.add(bulb);
+      root.userData.bulb = bulb;
+      root.userData.cord = cord;
+    } else if (l.kind === 'lamp') {
       box(0.34, 0.06, 0.34, 0x3f3f46, -0.47); // the base against the surface
       box(0.08, 0.14, 0.08, 0x3f3f46, -0.37);
       const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshBasicMaterial({ color: 0xfff1b0 }));
@@ -1172,7 +1188,7 @@ export class DioramaView {
     const off = this.offset;
     const offZ = this.offsetZ;
     for (const l of this.world.lights) {
-      const sig = `${l.kind}${l.at}${l.kind === 'switch' ? 'n' + l.group : ''}`; // the look depends on what it is, which side it is on and a switch's number; the rest is shown by refreshLightLook
+      const sig = `${l.kind}${l.at}${l.kind === 'switch' ? 'n' + l.group : 's' + (l.string || 0)}`; // the look depends on what it is, which side it is on and a switch's number; the rest is shown by refreshLightLook
       let entry = this.lightGroups.get(l.id);
       if (!entry || entry.sig !== sig) {
         if (entry) this.scene.remove(entry.group);

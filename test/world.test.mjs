@@ -654,6 +654,31 @@ await test('measure: steps along each axis, straight line and the box round both
   assert.equal(measure([2, 2, 2], [2, 2, 2]).label, 'same block');
 });
 
+await test('lights: a lamp on a ceiling can hang on a string, and the light comes from the bulb', async () => {
+  const { cleanLight, bulbCell, MAX_STRING } = await import('../src/world.js');
+  assert.equal(cleanLight({ kind: 'lamp', at: 2, string: 3, x: 1, y: 5, z: 1 }).string, 3);
+  assert.equal(cleanLight({ kind: 'lamp', at: 2, string: 99, x: 1, y: 5, z: 1 }).string, MAX_STRING);
+  assert.equal(cleanLight({ kind: 'lamp', at: 2, string: -2, x: 1, y: 5, z: 1 }).string, 0);
+  assert.equal(cleanLight({ kind: 'lamp', at: 2, string: 'long', x: 1, y: 5, z: 1 }).string, 0);
+  assert.equal('string' in cleanLight({ kind: 'lamp', at: 3, string: 3, x: 1, y: 5, z: 1 }), false, 'only a lamp on a ceiling hangs');
+  assert.equal('string' in cleanLight({ kind: 'switch', at: 2, string: 3, x: 1, y: 5, z: 1 }), false);
+  const w = new World(12);
+  w.setMany([[4, 5, 4, 3], [4, 2, 4, 3]]); // a ceiling block at y 5, and something on the floor of the string's way down at y 2
+  assert.equal(w.canPlaceLight(4, 4, 4, 2, null, 0), true); // the ceiling cell is y 4 (the block above it is at y 5)
+  assert.equal(w.canPlaceLight(4, 4, 4, 2, null, 1), true);
+  assert.equal(w.canPlaceLight(4, 4, 4, 2, null, 2), false); // the second cell down (y 2) is a block: the string cannot go through it
+  assert.equal(w.canPlaceLight(4, 4, 4, 2, null, 3), false);
+  const lamp = w.addLight({ kind: 'lamp', x: 4, y: 4, z: 4, at: 2, string: 1 });
+  assert.deepEqual(bulbCell(lamp), [4, 3, 4]);
+  assert.deepEqual(bulbCell({ x: 1, y: 3, z: 1 }), [1, 3, 1]);
+  const back = await decodeWorld(await encodeWorld(w));
+  assert.equal(back.lights[0].string, 1, 'the string is saved');
+  w.changeLight(lamp.id, { string: 0 });
+  assert.equal(w.getLight(lamp.id).string, 0);
+  w.undo();
+  assert.equal(w.getLight(lamp.id).string, 1, 'and undone');
+});
+
 await test('measure: counts the blocks in the box and finds its middle', async () => {
   const { countBlocks, centerOf, describe } = await import('../src/measure.js');
   const w = new World(12);

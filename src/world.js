@@ -74,6 +74,9 @@ export const LIGHT_TIMES = ['day', 'sunset', 'night'];
 export const LAMP_MODES = ['on', 'switch', 'time'];
 export const LIGHT_SIDES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]; // from the cell towards the side it is stuck to
 export const MAX_LIGHTS = 300;
+export const MAX_STRING = 6; // the longest string a hanging lamp can have, in cells
+// The cell a lamp's light comes from: for a lamp on a string, the bulb at the bottom of it.
+export const bulbCell = (l) => [l.x, l.y - (l.string || 0), l.z];
 export function cleanLight(l) {
   const out = { kind: l.kind === 'switch' ? 'switch' : 'lamp' };
   out.at = Number.isInteger(l.at) && l.at >= 0 && l.at <= 5 ? l.at : 3;
@@ -83,6 +86,8 @@ export function cleanLight(l) {
     out.mode = LAMP_MODES.includes(l.mode) ? l.mode : 'on';
     out.times = LIGHT_TIMES.filter((t) => Array.isArray(l.times) && l.times.includes(t));
     if (out.mode === 'time' && !out.times.length) out.times = ['night'];
+    // a lamp stuck to a ceiling can hang on a string: `string` cells of cord below that ceiling cell, with the bulb pointing at the floor
+    if (out.at === 2) out.string = Number.isInteger(l.string) ? Math.max(0, Math.min(MAX_STRING, l.string)) : 0;
   }
   out.x = Number(l.x);
   out.y = Number(l.y);
@@ -552,8 +557,14 @@ export class World {
 
   // ----- lights and switches -----
   // A free cell with something solid (or the floor, for the bottom side) on the side it is stuck to; one object per cell and side.
-  canPlaceLight(x, y, z, at, ignoreId = null) {
+  // Is the way down free for a string of `n` cells hanging from the ceiling cell (x, y, z)? (the cells below it, as far as the bulb)
+  stringClear(x, y, z, n) {
+    for (let i = 1; i <= n; i++) if (y - i < 0 || this.get(x, y - i, z) !== 0) return false;
+    return true;
+  }
+  canPlaceLight(x, y, z, at, ignoreId = null, string = 0) {
     if (!this.inBounds(x, y, z) || this.get(x, y, z) || !(at >= 0 && at <= 5) || this.lights.length >= MAX_LIGHTS) return false;
+    if (at === 2 && string > 0 && !this.stringClear(x, y, z, string)) return false;
     const [dx, dy, dz] = LIGHT_SIDES[at];
     const held = at === 3 && y === 0 ? true : this.get(x + dx, y + dy, z + dz) !== 0;
     return held && !this.lights.some((l) => l.id !== ignoreId && l.x === x && l.y === y && l.z === z && l.at === at);
