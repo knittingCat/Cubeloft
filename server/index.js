@@ -108,12 +108,17 @@ async function userFromRequest(req) {
   return rows[0] || null;
 }
 
-// Who may edit a diorama together with others: its owner, or a member of its class once the owner switched editing on.
+// Who may edit a diorama together with others: people it is shared with by name with editing on, a member of its class once the
+// owner switched editing on, and its owner while either of those is the case.
 async function canLiveEdit(userId, dioramaId) {
   const { rows } = await query(`SELECT owner_id, visibility, class_id, class_edit FROM ${T.dioramas} WHERE id = $1`, [dioramaId]);
   const d = rows[0];
-  if (!d || d.visibility !== 'class' || !d.class_edit || !d.class_id) return false;
-  if (d.owner_id === userId) return true;
+  if (!d) return false;
+  const classOk = d.visibility === 'class' && d.class_edit && d.class_id;
+  const { rows: editors } = await query(`SELECT user_id FROM ${T.shares} WHERE diorama_id = $1 AND can_edit`, [dioramaId]);
+  if (d.owner_id === userId) return !!classOk || editors.length > 0;
+  if (editors.some((r) => r.user_id === userId)) return true;
+  if (!classOk) return false;
   return (await query(`SELECT 1 FROM ${T.members} WHERE class_id = $1 AND user_id = $2`, [d.class_id, userId])).rowCount > 0;
 }
 
@@ -432,8 +437,9 @@ export function createApp() {
       current = cur[0];
       if (!current) return bad(res, 404, 'Diorama not found.');
       if (current.owner_id !== req.user.id) {
-        // not the owner: allowed only while it is shared with a class the person is in, with editing switched on
-        const canEdit = current.class_edit && current.visibility === 'class' && current.class_id && (await isMember(req.user.id, current.class_id));
+        // not the owner: allowed only while it is shared with them by name with editing on, or with a class they are in, with editing switched on
+        const named = (await query(`SELECT 1 FROM ${T.shares} WHERE diorama_id = $1 AND user_id = $2 AND can_edit`, [id, req.user.id])).rowCount > 0;
+        const canEdit = named || (current.class_edit && current.visibility === 'class' && current.class_id && (await isMember(req.user.id, current.class_id)));
         if (!canEdit) return bad(res, 404, 'Diorama not found.');
         collaborator = true;
       }
@@ -489,10 +495,19 @@ export function createApp() {
 
   app.get('/api/dioramas/mine', needUser, wrap(async (req, res) => {
     const { rows } = await query(
-      `SELECT d.id, d.title, d.thumb, d.visibility, d.class_id, d.class_edit, c.name AS class_name, (d.code_hash IS NOT NULL) AS has_code, d.updated_at FROM ${T.dioramas} d LEFT JOIN ${T.classes} c ON c.id = d.class_id WHERE d.owner_id = $1 ORDER BY d.updated_at DESC`,
+      `SELECT d.id, d.title, d.thumb, d.visibility, d.class_id, d.class_edit, c.name AS class_name, (d.code_hash IS NOT NULL) AS has_code, d.updated_at, (SELECT COUNT(*)::int FROM ${T.shares} s WHERE s.diorama_id = d.id) AS shared_with FROM ${T.dioramas} d LEFT JOIN ${T.classes} c ON c.id = d.class_id WHERE d.owner_id = $1 ORDER BY d.updated_at DESC`,
       [req.user.id],
     );
-    res.json({ dioramas: rows.map((r) => ({ id: r.id, title: r.title, thumb: r.thumb, visibility: r.visibility, classId: r.class_id, classEdit: r.class_edit, className: r.class_name, hasCode: r.has_code, updatedAt: r.updated_at })) });
+    res.json({ dioramas: rows.map((r) => ({ id: r.id, title: r.title, thumb: r.thumb, visibility: r.visibility, classId: r.class_id, classEdit: r.class_edit, className: r.class_name, hasCode: r.has_code, sharedWith: r.shared_with, updatedAt: r.updated_at })) });
+  }));
+
+  // Dioramas other people shared with this person by name.
+  app.get('/api/dioramas/shared', needUser, wrap(async (req, res) => {
+    const { rows } = await query(
+      `SELECT d.id, d.title, d.thumb, d.updated_at, u.username, s.can_edit FROM ${T.shares} s JOIN ${T.dioramas} d ON d.id = s.diorama_id JOIN ${T.users} u ON u.id = d.owner_id WHERE s.user_id = $1 ORDER BY d.updated_at DESC`,
+      [req.user.id],
+    );
+    res.json({ dioramas: rows.map((r) => ({ id: r.id, title: r.title, owner: r.username, thumb: r.thumb, locked: false, canEdit: r.can_edit, updatedAt: r.updated_at })) });
   }));
 
   const unlocked = async (userId, kind, target) =>
@@ -529,14 +544,75 @@ export function createApp() {
     }
     let classMember = false;
     if (!mine && d.visibility === 'class' && d.class_id) classMember = await isMember(req.user.id, d.class_id);
-    if (!mine && !req.user.is_admin && !reviewer && !classMember) {
+    // shared with this person by name (looking, or looking and editing)
+    const share = mine ? null : (await query(`SELECT can_edit FROM ${T.shares} WHERE diorama_id = $1 AND user_id = $2`, [id, req.user.id])).rows[0] || null;
+    if (!mine && !req.user.is_admin && !reviewer && !classMember && !share) {
       if (d.visibility !== 'gallery') return bad(res, 404, 'Diorama not found.');
       if (d.gallery_hash && !(await unlocked(req.user.id, 'gallery', d.owner_id))) return bad(res, 403, 'This gallery needs a code.', { locked: 'gallery', ownerId: d.owner_id, owner: d.username });
       if (d.code_hash && !(await unlocked(req.user.id, 'diorama', d.id))) return bad(res, 403, 'This diorama needs a code.', { locked: 'diorama', id: d.id, owner: d.username });
     }
     // classmates can edit when the owner switched that on; `mine` means "you can edit and autosave it"
-    const editable = !mine && classMember && d.class_edit;
-    res.json({ id: d.id, title: d.title, data: d.data, owner: d.username, visibility: d.visibility, classId: d.class_id, classEdit: d.class_edit, mine: mine || editable, isOwner: mine });
+    const editable = !mine && ((classMember && d.class_edit) || (share && share.can_edit));
+    // shareEdit: named people can edit it too, so everyone with it open edits together (live)
+    const shareEdit = mine ? (await query(`SELECT 1 FROM ${T.shares} WHERE diorama_id = $1 AND can_edit LIMIT 1`, [id])).rowCount > 0 : !!(share && share.can_edit);
+    res.json({ id: d.id, title: d.title, data: d.data, owner: d.username, visibility: d.visibility, classId: d.class_id, classEdit: d.class_edit, mine: mine || !!editable, isOwner: mine, shareEdit });
+  }));
+
+  // --- sharing with named people ---
+  const MAX_SHARES = 50;
+  // The diorama if it is the signed-in person's own, otherwise sends the error and returns null.
+  const needOwnDiorama = async (req, res) => {
+    const id = Number(req.params.id);
+    const { rows } = Number.isInteger(id) ? await query(`SELECT id, owner_id FROM ${T.dioramas} WHERE id = $1`, [id]) : { rows: [] };
+    if (!rows[0] || rows[0].owner_id !== req.user.id) {
+      bad(res, 404, 'Diorama not found.');
+      return null;
+    }
+    return rows[0];
+  };
+  const shareList = async (dioramaId) => {
+    const { rows } = await query(
+      `SELECT u.username, s.can_edit FROM ${T.shares} s JOIN ${T.users} u ON u.id = s.user_id WHERE s.diorama_id = $1 ORDER BY LOWER(u.username)`,
+      [dioramaId],
+    );
+    return rows.map((r) => ({ username: r.username, canEdit: r.can_edit }));
+  };
+
+  app.get('/api/dioramas/:id/shares', needUser, wrap(async (req, res) => {
+    const d = await needOwnDiorama(req, res);
+    if (!d) return;
+    res.json({ shares: await shareList(d.id) });
+  }));
+
+  // Share with one person by username (or change what they may do): look only, or look and edit.
+  app.post('/api/dioramas/:id/shares', needUser, rateLimiter({ windowMs: 600e3, max: 60 }), wrap(async (req, res) => {
+    const d = await needOwnDiorama(req, res);
+    if (!d) return;
+    const name = String(req.body.username || '').trim();
+    if (!name) return bad(res, 400, 'Type the username of the person to share with.');
+    const { rows: u } = await query(`SELECT id, username FROM ${T.users} WHERE LOWER(username) = LOWER($1)`, [name]);
+    if (!u[0]) return bad(res, 404, 'No one has that username.');
+    if (u[0].id === req.user.id) return bad(res, 400, 'It is already yours.');
+    const existing = (await query(`SELECT 1 FROM ${T.shares} WHERE diorama_id = $1 AND user_id = $2`, [d.id, u[0].id])).rowCount > 0;
+    if (!existing && (await shareList(d.id)).length >= MAX_SHARES) return bad(res, 400, `You can share one diorama with up to ${MAX_SHARES} people.`);
+    await query(
+      `INSERT INTO ${T.shares} (diorama_id, user_id, can_edit) VALUES ($1, $2, $3) ON CONFLICT (diorama_id, user_id) DO UPDATE SET can_edit = EXCLUDED.can_edit`,
+      [d.id, u[0].id, req.body.canEdit === true],
+    );
+    if (live) live.recheck(d.id);
+    res.json({ shares: await shareList(d.id) });
+  }));
+
+  // The owner stops sharing with someone; the person it was shared with can also remove themselves.
+  app.delete('/api/dioramas/:id/shares/:username', needUser, wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const { rows: d } = Number.isInteger(id) ? await query(`SELECT id, owner_id FROM ${T.dioramas} WHERE id = $1`, [id]) : { rows: [] };
+    if (!d[0]) return bad(res, 404, 'Diorama not found.');
+    const { rows: u } = await query(`SELECT id FROM ${T.users} WHERE LOWER(username) = LOWER($1)`, [String(req.params.username)]);
+    if (!u[0] || (d[0].owner_id !== req.user.id && u[0].id !== req.user.id)) return bad(res, 404, 'Diorama not found.');
+    await query(`DELETE FROM ${T.shares} WHERE diorama_id = $1 AND user_id = $2`, [id, u[0].id]);
+    if (live) live.recheck(id);
+    res.json({ shares: d[0].owner_id === req.user.id ? await shareList(id) : [] });
   }));
 
   app.delete('/api/dioramas/:id', needUser, wrap(async (req, res) => {

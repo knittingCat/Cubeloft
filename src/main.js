@@ -5,7 +5,7 @@ import { DioramaView } from './view.js';
 import { initAccount } from './account.js';
 import { api } from './api.js';
 import { createLive } from './live.js';
-import { measure } from './measure.js';
+import { describe as describeMeasure, centerOf } from './measure.js';
 import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, placement, symmetricCells, symmetricPlacements } from './clipboard.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -131,6 +131,25 @@ const AREA_TOOLS = ['box', 'select', 'paste', 'mirror', 'measure']; // tools whe
 let measureA = null; // Measure tool: the first cell, then the second (a third click starts over)
 let measureB = null;
 let measureHoverKey = null; // the cell the live measuring line currently ends on
+let measureCenter = false; // the middle of the measured box is highlighted
+
+// The Measure bar: what to do next, then the size of the box, how many blocks are in it and the distance; Find center highlights the middle.
+function syncMeasureBar(live = '') {
+  const done = !!(measureA && measureB);
+  let text = 'Click a block to start measuring from, then click a second block.';
+  if (measureA && !measureB) text = live || 'Now click the second block.';
+  if (done) text = describeMeasure(world, measureA, measureB) + (measureCenter ? ` ${centerOf(measureA, measureB).text}` : '');
+  $('#measureText').textContent = text;
+  $('#measureCenter').disabled = !done;
+  $('#measureCenter').textContent = measureCenter ? 'Hide center' : 'Find center';
+}
+function clearMeasure() {
+  measureA = measureB = measureHoverKey = null;
+  measureCenter = false;
+  view?.showMeasure(null);
+  view?.showRegion(null, null);
+  syncMeasureBar();
+}
 let lightKind = 'lamp'; // Lights tool: what the next click places ('lamp' or 'switch')
 let lightSel = null; // Lights tool: id of the lamp or switch whose settings are shown (and changed by the controls)
 let selection = null; // { a, b } finished selection
@@ -161,9 +180,9 @@ const live = createLive({
   },
 });
 
-// Live editing is on while a class diorama that allows class editing is open for you to edit.
+// Live editing is on while a diorama that other people can edit too (its class, or people it is shared with by name) is open for you to edit.
 function syncLive() {
-  const on = cloud && cloud.mine && cloud.visibility === 'class' && cloud.classEdit && !sharedMode && accountApi && accountApi.isSignedIn();
+  const on = cloud && cloud.mine && ((cloud.visibility === 'class' && cloud.classEdit) || cloud.shareEdit) && !sharedMode && accountApi && accountApi.isSignedIn();
   if (on) live.connect(cloud.id);
   else live.disconnect();
 }
@@ -240,8 +259,8 @@ function setTool(t) {
   boxA = null;
   selA = null;
   lastTapKey = null;
-  measureA = measureB = measureHoverKey = null;
-  view?.showMeasure(null);
+  clearMeasure();
+  $('#measureBar').hidden = t !== 'measure';
   if (mirrorSel || was === 'mirror') {
     mirrorSel = null;
     view?.showMirrorLine(null);
@@ -311,7 +330,7 @@ function updateStatus() {
   let hint = tool === 'box' ? (boxA ? ' — click the opposite corner' : ' — click a first corner') : '';
   if (tool === 'mirror') hint = mirrorSel ? ' — click where the mirror line should go (beside the area; the blue line shows it)' : selA ? ' — click the opposite corner of the area' : ' — click one corner of the area to mirror';
   if (tool === 'select') hint = selA ? ' — click the opposite corner' : selection ? ' — copied — press Paste' : ' — click one corner of the area';
-  if (tool === 'measure') hint = measureB ? ` — ${measure(measureA, measureB).text} (click again to measure something else)` : measureA ? ' — click the second block' : ' — click a block to start measuring from, then another to measure to';
+  if (tool === 'measure') hint = measureB ? ' — measured (click again to measure something else)' : measureA ? ' — click the second block' : ' — click a block to start measuring from, then another to measure to';
   if (tool === 'light') hint = ` — click a block face or the floor to put a ${lightKind} there, click one to change it`;
   if (tool === 'person') hint = ' — click to put a person here, or click one to change their outfit';
   if (tool === 'door') hint = ' — click to place a door (it takes the planks colour you have selected), click one to open or close it, R turns it, Shift+R flips it to the other side';
@@ -343,7 +362,7 @@ function scheduleSave(remote = false) {
 // ---------- autosave to your account ----------
 // Remember which saved diorama this browser was editing, so autosave keeps working after a refresh.
 function rememberCloud() {
-  store.set('cloud', cloud && cloud.mine ? JSON.stringify({ id: cloud.id, title: cloud.title, owner: cloud.owner, isOwner: cloud.isOwner, visibility: cloud.visibility, classId: cloud.classId, classEdit: cloud.classEdit, hasCode: !!cloud.hasCode }) : '');
+  store.set('cloud', cloud && cloud.mine ? JSON.stringify({ id: cloud.id, title: cloud.title, owner: cloud.owner, isOwner: cloud.isOwner, visibility: cloud.visibility, classId: cloud.classId, classEdit: cloud.classEdit, shareEdit: !!cloud.shareEdit, hasCode: !!cloud.hasCode }) : '');
 }
 
 function setCloudState(text) {
@@ -637,8 +656,9 @@ function refreshHover(e) {
     view.showGhost(point, { color: 0x4dd0e1, opacity: 0.3, scale: 1.03 });
     const key = point ? point.join(',') : null;
     if (measureA && !measureB && point && key !== measureHoverKey) {
-      measureHoverKey = key; // the label is only redrawn when the pointer moves to another cell
-      view.showMeasure(measureA, point, measure(measureA, point).label); // follows the pointer until the second click
+      measureHoverKey = key; // redrawn only when the pointer moves to another cell
+      view.showMeasure(measureA, point); // follows the pointer until the second click
+      syncMeasureBar(`${describeMeasure(world, measureA, point)} — click to fix it here`);
     }
     return;
   }
@@ -1102,16 +1122,14 @@ async function actAt(e, button) {
     const point = hit.cell || hit.prev;
     if (!point) return;
     if (!measureA || measureB) {
-      measureA = point; // first click, or a click after a finished measurement: start over
-      measureB = null;
-      measureHoverKey = null;
+      clearMeasure(); // first click, or a click after a finished measurement: start over
+      measureA = point;
       view.showMeasure(measureA, null);
     } else {
       measureB = point;
-      const m = measure(measureA, measureB);
-      view.showMeasure(measureA, measureB, m.label);
-      toast(m.text);
+      view.showMeasure(measureA, measureB);
     }
+    syncMeasureBar();
     updateStatus();
     return;
   }
@@ -1446,6 +1464,15 @@ function wireUI() {
   );
   $('#copyBtn').addEventListener('click', copySelection);
   $('#rotateBtn').addEventListener('click', rotateClip);
+  $('#measureCenter').addEventListener('click', () => {
+    if (!measureA || !measureB) return;
+    measureCenter = !measureCenter;
+    if (measureCenter) {
+      const c = centerOf(measureA, measureB);
+      view.showRegion(c.lo, c.hi); // outlines the middle block (or the middle few, when the count across is even)
+    } else view.showRegion(null, null);
+    syncMeasureBar();
+  });
   $('#symBtn').addEventListener('click', cycleSymmetry);
   $('#mirrorBtn2').addEventListener('click', mirrorClip);
   $('#cancelPasteBtn').addEventListener('click', () => setTool('build'));
@@ -1673,10 +1700,7 @@ function wireUI() {
       selection = null;
       view.showRegion(null, null);
       view.showSelection(null);
-      if (tool === 'measure') {
-        measureA = measureB = null;
-        view.showMeasure(null);
-      }
+      if (tool === 'measure') clearMeasure();
       if (tool === 'light') {
         if (lightSel != null) {
           lightSel = null;

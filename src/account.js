@@ -167,7 +167,7 @@ export async function initAccount(ctx) {
       try {
         const res = await api('POST', '/api/dioramas', payload);
         world.meta.title = payload.title;
-        ctx.setCloud({ id: res.id, title: payload.title, mine: true, isOwner: true, visibility: payload.visibility, classId: payload.classId, classEdit: payload.classEdit, hasCode: !!code || (updating && cloud.hasCode && !f.get('clearCode')) });
+        ctx.setCloud({ id: res.id, title: payload.title, mine: true, isOwner: true, visibility: payload.visibility, classId: payload.classId, classEdit: payload.classEdit, shareEdit: updating && !asNew && !!cloud.shareEdit, hasCode: !!code || (updating && cloud.hasCode && !f.get('clearCode')) });
         ctx.toast(payload.visibility === 'gallery' ? 'Saved — it is in your gallery.' : payload.visibility === 'class' ? 'Saved — shared with your class.' : 'Saved to your account.');
         close();
       } catch (err) {
@@ -181,7 +181,7 @@ export async function initAccount(ctx) {
   function collabSaveView(world, cloud) {
     const el = open(`
       <h2>Save changes</h2>
-      <p>${esc(cloud.owner)} let your class edit this diorama. Your changes are saved for everyone in the class, and replace what is there now.</p>
+      <p>${esc(cloud.owner)} let you edit this diorama. Your changes are saved for everyone who can edit it, and replace what is there now.</p>
       <form id="saveForm">
         <label>Title <input name="title" maxlength="80" required value="${esc(cloud.title)}"></label>
         <p class="error" id="saveError" hidden></p>
@@ -199,7 +199,7 @@ export async function initAccount(ctx) {
         await api('POST', '/api/dioramas', { id: cloud.id, title, data: await encodeWorld(world), thumb: ctx.makeThumb() });
         world.meta.title = title;
         ctx.setCloud({ ...cloud, title });
-        ctx.toast('Saved for your class.');
+        ctx.toast('Saved for everyone who can edit it.');
         close();
       } catch (err) {
         for (const b of el.querySelectorAll('button')) b.disabled = false;
@@ -212,7 +212,7 @@ export async function initAccount(ctx) {
   async function openDiorama(id) {
     try {
       const d = await api('GET', `/api/dioramas/${id}`);
-      await ctx.loadScene(d.data, { shared: !d.mine, cloud: { id: d.id, title: d.title, owner: d.owner, mine: d.mine, isOwner: d.isOwner, visibility: d.visibility, classId: d.classId, classEdit: d.classEdit } });
+      await ctx.loadScene(d.data, { shared: !d.mine, cloud: { id: d.id, title: d.title, owner: d.owner, mine: d.mine, isOwner: d.isOwner, visibility: d.visibility, classId: d.classId, classEdit: d.classEdit, shareEdit: d.shareEdit } });
       close();
     } catch (err) {
       if (err.data && err.data.locked === 'gallery') return unlockView({ kind: 'gallery', id: err.data.ownerId, owner: err.data.owner, then: () => openDiorama(id) });
@@ -250,14 +250,64 @@ export async function initAccount(ctx) {
             (d) => `<div class="dcard">
               <button class="dthumb" data-open="${d.id}" title="Open">${d.thumb ? `<img src="${esc(d.thumb)}" alt="">` : `<span>${d.locked ? 'Locked' : 'No picture'}</span>`}</button>
               <div class="dtitle">${d.locked ? '[Locked] ' : ''}${esc(d.title)}</div>
-              <div class="dmeta">${mine ? (d.visibility === 'gallery' ? 'In my gallery' : d.visibility === 'class' ? 'Class: ' + esc(d.className || '') : 'Only me') + (d.hasCode ? ' · needs a code' : '') : `by <button class="link" data-user="${esc(d.owner)}">${esc(d.owner)}</button>`}</div>
-              ${mine ? `<div class="dactions"><button data-open="${d.id}">Open</button>${d.visibility === 'gallery' && !d.hasCode ? `<button data-link="${d.id}">Copy link</button>` : ''}<button data-del="${d.id}">Delete</button></div>` : takedown ? `<div class="dactions"><button data-takedown="${d.id}">Take down</button></div>` : ''}
+              <div class="dmeta">${mine ? (d.visibility === 'gallery' ? 'In my gallery' : d.visibility === 'class' ? 'Class: ' + esc(d.className || '') : 'Only me') + (d.hasCode ? ' · needs a code' : '') + (d.sharedWith ? ` · shared with ${d.sharedWith}` : '') : `by <button class="link" data-user="${esc(d.owner)}">${esc(d.owner)}</button>${d.canEdit ? ' · you can edit' : ''}`}</div>
+              ${mine ? `<div class="dactions"><button data-open="${d.id}">Open</button><button data-share="${d.id}" data-title="${esc(d.title)}">Share</button>${d.visibility === 'gallery' && !d.hasCode ? `<button data-link="${d.id}">Copy link</button>` : ''}<button data-del="${d.id}">Delete</button></div>` : takedown ? `<div class="dactions"><button data-takedown="${d.id}">Take down</button></div>` : ''}
             </div>`,
           )
           .join('')}</div>`
       : '<p class="hint">Nothing here yet.</p>';
 
+  // Share one of your dioramas with named people: they can look, or look and edit. Changes apply at once (no Save needed).
+  async function shareView(id, title) {
+    let shares;
+    try {
+      shares = (await api('GET', `/api/dioramas/${id}/shares`)).shares;
+    } catch (err) {
+      ctx.toast(err.message);
+      return;
+    }
+    const draw = () => {
+      const el = open(
+        `<h2>Share “${esc(title)}”</h2>
+        <p class="hint">Share with someone by their username. They find it under “Shared with me” in the Gallery. “Can edit” lets them change it too, and you edit together live.</p>
+        ${shares.length ? `<ul class="sharelist">${shares.map((s) => `<li><b>${esc(s.username)}</b>
+            <label class="inline"><input type="checkbox" data-edit="${esc(s.username)}" ${s.canEdit ? 'checked' : ''}> can edit</label>
+            <button type="button" data-remove="${esc(s.username)}">Stop sharing</button></li>`).join('')}</ul>` : '<p class="hint">Not shared with anyone yet.</p>'}
+        <form id="shareForm" class="inlineform">
+          <input name="username" maxlength="30" autocomplete="off" placeholder="Their username" required>
+          <label class="inline"><input type="checkbox" name="canEdit"> can edit</label>
+          <button class="primary">Share</button>
+        </form>
+        <p class="error" id="shareError" hidden></p>
+        <div class="row"><button type="button" class="primary" data-act="done">Done</button></div>`,
+      );
+      const change = async (method, path, body) => {
+        try {
+          shares = (await api(method, path, body)).shares;
+          // the open diorama learns whether other people can edit it, so live editing starts or stops
+          const cloud = ctx.getCloud();
+          if (cloud && cloud.id === id && cloud.isOwner !== false) {
+            ctx.setCloud({ ...cloud, shareEdit: shares.some((s) => s.canEdit) });
+          }
+          draw();
+        } catch (err) {
+          fail($('#shareError', el), err);
+        }
+      };
+      $('#shareForm', el).onsubmit = (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        change('POST', `/api/dioramas/${id}/shares`, { username: f.get('username'), canEdit: f.get('canEdit') === 'on' });
+      };
+      el.querySelectorAll('[data-edit]').forEach((box) => (box.onchange = () => change('POST', `/api/dioramas/${id}/shares`, { username: box.dataset.edit, canEdit: box.checked })));
+      el.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = () => change('DELETE', `/api/dioramas/${id}/shares/${encodeURIComponent(b.dataset.remove)}`)));
+      $('[data-act=done]', el).onclick = () => mineView();
+    };
+    draw();
+  }
+
   function wireCards(el) {
+    el.querySelectorAll('[data-share]').forEach((b) => (b.onclick = () => shareView(Number(b.dataset.share), b.dataset.title)));
     el.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => openDiorama(Number(b.dataset.open))));
     el.querySelectorAll('[data-user]').forEach((b) => (b.onclick = () => userGalleryView(b.dataset.user)));
     el.querySelectorAll('[data-link]').forEach(
@@ -352,9 +402,11 @@ export async function initAccount(ctx) {
     try {
       const g = await api('GET', '/api/gallery');
       const { classes } = await api('GET', '/api/classes');
+      const { dioramas: withMe } = await api('GET', '/api/dioramas/shared').catch(() => ({ dioramas: [] }));
       const el = open(
         `<h2>Gallery</h2>
         <p class="hint">Dioramas other people chose to share. Be kind — use Report if something isn't okay.</p>
+        ${withMe.length ? `<h3>Shared with me</h3>${cards(withMe)}` : ''}
         <h3>My classes</h3>
         <div class="chips">${classes.length ? classes.map((c) => `<button class="chip" data-class="${c.id}">${esc(c.name)} <small>${c.members}</small></button>`).join('') : '<span class="hint">You are not in a class yet.</span>'}</div>
         <form id="joinForm" class="inlineform">

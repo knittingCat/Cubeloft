@@ -6,6 +6,22 @@ import { textureCanvas, doorCanvas } from './textures.js';
 import { DOOR_THICKNESS, LIGHT_SIDES, lampLit } from './world.js';
 import { computeLight, faceLevels, brightness, glowAmount, NO_EDGE_LIGHT } from './light.js';
 
+// Put a switch's number on the plate so it reads upright: on a wall it sits at the bottom end of the plate with the top of the
+// digit pointing up; on a floor or ceiling the top of the digit points north. `rootQ` and `innerEuler` are how the switch is turned
+// (see buildLight); the plate is in its own frame with the face on +y and the long edge along z.
+export function placeSwitchNumber(T, num, rootQ, innerEuler) {
+  const total = rootQ.clone().multiply(new T.Quaternion().setFromEuler(innerEuler));
+  const inv = total.clone().invert();
+  const up = new T.Vector3(0, 1, 0).applyQuaternion(inv); // world up in the plate's frame
+  const flat = Math.abs(up.y) > 0.9; // lying on a floor or ceiling: there is no "up" along the plate, use north instead
+  const t = flat ? new T.Vector3(0, 0, -1).applyQuaternion(inv) : up;
+  const len = Math.hypot(t.x, t.z) || 1;
+  const [tx, tz] = [t.x / len, t.z / len];
+  num.position.set(0, -0.437, tz > 0.5 ? -0.175 : 0.175); // the end of the plate the digit's feet point to
+  num.rotation.set(-Math.PI / 2, 0, 0);
+  num.rotateZ(Math.atan2(-tx, -tz)); // turn the digit about the plate's normal until its top points the right way
+}
+
 const DOOR_OPEN_ANGLE = -Math.PI / 2; // hinge turn of a fully open door
 const WALK_SPEED = 1.4; // cells per second (about a person's walking pace: the figure is ~1.5 cells tall)
 const STRIDE = 1.5; // cells covered by one full leg cycle (two steps)
@@ -241,15 +257,10 @@ export class DioramaView {
     this.measureLabel = null;
   }
 
-  // Show a measurement between cells a and b (b may be null while only the first is chosen; a null hides it all).
-  showMeasure(a, b, label = '') {
+  // Show a measurement between cells a and b (b may be null while only the first is chosen; a null hides it all). The numbers
+  // are shown in the Measure bar, not in the scene.
+  showMeasure(a, b) {
     this.dirty = true;
-    if (this.measureLabel) {
-      this.helpers.remove(this.measureLabel);
-      this.measureLabel.material.map.dispose();
-      this.measureLabel.material.dispose();
-      this.measureLabel = null;
-    }
     this.measureA.visible = !!a;
     this.measureB.visible = !!(a && b);
     this.measureLine.visible = !!(a && b);
@@ -263,15 +274,6 @@ export class DioramaView {
     const pa = centre(a);
     const pb = centre(b);
     this.measureLine.geometry.setFromPoints([pa, pb]);
-    if (label) {
-      const mid = pa.clone().add(pb).multiplyScalar(0.5);
-      const sprite = this.makeLabelSprite(label);
-      sprite.position.set(mid.x, mid.y + 0.3, mid.z);
-      sprite.material.depthTest = false;
-      sprite.renderOrder = 9;
-      this.helpers.add(sprite);
-      this.measureLabel = sprite;
-    }
   }
 
   // ----- sky & lighting -----
@@ -1106,6 +1108,25 @@ export class DioramaView {
 
   // A lamp (a bulb on a small base) or a switch (a plate with a rocker), drawn stuck to the side `at` of its cell:
   // built standing on the bottom of the cell, then turned so its base faces the side it is stuck to.
+  // A small dark digit on a transparent background, for the plate of a numbered switch.
+  numberTexture(n) {
+    const key = `switch-number:${n}`;
+    if (!this.textures.has(key)) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const g = c.getContext('2d');
+      g.fillStyle = '#1f2937';
+      g.font = 'bold 56px system-ui, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(String(n), 32, 36);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      this.textures.set(key, t);
+    }
+    return this.textures.get(key);
+  }
+
   buildLight(l) {
     const root = new THREE.Group();
     const inner = new THREE.Group();
@@ -1126,9 +1147,15 @@ export class DioramaView {
     } else {
       box(0.34, 0.06, 0.5, 0xe5e7eb, -0.47);
       root.userData.toggle = box(0.1, 0.12, 0.2, 0x22c55e, -0.4);
+      // the switch's number, small on the plate beside the rocker
+      const num = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshBasicMaterial({ map: this.numberTexture(l.group), transparent: true, depthWrite: false }));
+      num.rotation.x = -Math.PI / 2;
+      inner.add(num);
+      root.userData.number = num;
     }
     inner.rotation.y = l.at === 0 || l.at === 1 ? Math.PI / 2 : 0; // on a side wall the long edge of a switch stands upright
     root.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), new THREE.Vector3(...LIGHT_SIDES[l.at]));
+    if (root.userData.number) placeSwitchNumber(THREE, root.userData.number, root.quaternion, inner.rotation);
     root.userData.lightId = l.id;
     return root;
   }
@@ -1145,7 +1172,7 @@ export class DioramaView {
     const off = this.offset;
     const offZ = this.offsetZ;
     for (const l of this.world.lights) {
-      const sig = `${l.kind}${l.at}`; // the look only depends on what it is and which side it is on; the rest is shown by refreshLightLook
+      const sig = `${l.kind}${l.at}${l.kind === 'switch' ? 'n' + l.group : ''}`; // the look depends on what it is, which side it is on and a switch's number; the rest is shown by refreshLightLook
       let entry = this.lightGroups.get(l.id);
       if (!entry || entry.sig !== sig) {
         if (entry) this.scene.remove(entry.group);

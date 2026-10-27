@@ -577,6 +577,55 @@ try {
     assert.equal((await call('GET', '/api/me', undefined, 'f'.repeat(64))).json.user, null);
   });
 
+  await test('sharing a diorama with named people: look only, look and edit, and taking it back', async () => {
+    const made = await ann.call('POST', '/api/dioramas', { title: 'Just for Ben', data: DATA, visibility: 'private' });
+    const id = made.json.id;
+    assert.equal((await ben.call('GET', `/api/dioramas/${id}`)).status, 404); // private: nobody else sees it
+    assert.equal((await ben.call('GET', `/api/dioramas/${id}/shares`)).status, 404); // only the owner reads the list
+    assert.equal((await ben.call('POST', `/api/dioramas/${id}/shares`, { username: 'cat' })).status, 404); // or changes it
+    assert.equal((await ann.call('POST', `/api/dioramas/${id}/shares`, { username: 'nobody-here' })).status, 404);
+    assert.equal((await ann.call('POST', `/api/dioramas/${id}/shares`, { username: 'ANN' })).status, 400); // not with yourself
+    assert.equal((await ann.call('POST', `/api/dioramas/${id}/shares`, { username: '' })).status, 400);
+    // look only
+    const shared = await ann.call('POST', `/api/dioramas/${id}/shares`, { username: 'BEN' }); // any capitalization
+    assert.equal(shared.status, 200);
+    assert.deepEqual(shared.json.shares, [{ username: 'ben', canEdit: false }]);
+    const look = await ben.call('GET', `/api/dioramas/${id}`);
+    assert.equal(look.status, 200);
+    assert.equal(look.json.mine, false);
+    assert.equal(look.json.shareEdit, false);
+    assert.equal((await ben.call('POST', '/api/dioramas', { id, title: 'Ben edit', data: DATA })).status, 404);
+    assert.equal((await cat.call('GET', `/api/dioramas/${id}`)).status, 404); // nobody else got it
+    const list = await ben.call('GET', '/api/dioramas/shared');
+    assert.deepEqual(list.json.dioramas.map((d) => [d.id, d.owner, d.canEdit]), [[id, 'Ann', false]]);
+    assert.equal((await ann.call('GET', '/api/dioramas/mine')).json.dioramas.find((d) => d.id === id).sharedWith, 1);
+    // look and edit
+    assert.equal((await ann.call('POST', `/api/dioramas/${id}/shares`, { username: 'ben', canEdit: true })).json.shares[0].canEdit, true);
+    const edit = await ben.call('GET', `/api/dioramas/${id}`);
+    assert.equal(edit.json.mine, true);
+    assert.equal(edit.json.isOwner, false);
+    assert.equal(edit.json.shareEdit, true);
+    assert.equal((await ann.call('GET', `/api/dioramas/${id}`)).json.shareEdit, true); // the owner is told people can edit too (live editing)
+    assert.equal((await ben.call('POST', '/api/dioramas', { id, title: 'Ben edit', data: DATA })).status, 200);
+    const after = await ann.call('GET', `/api/dioramas/${id}`);
+    assert.equal(after.json.title, 'Ben edit');
+    assert.equal(after.json.visibility, 'private'); // a collaborator cannot change who can see it
+    assert.equal((await ben.call('POST', '/api/dioramas', { id, title: 'Ben edit', data: DATA, visibility: 'gallery', explicit: true })).json.id, id);
+    assert.equal((await ann.call('GET', `/api/dioramas/${id}`)).json.visibility, 'private');
+    assert.equal((await ann.call('GET', `/api/dioramas/${id}/shares`)).json.shares.length, 1);
+    assert.equal((await cat.call('DELETE', `/api/dioramas/${id}/shares/ben`)).status, 404); // a stranger cannot take it away
+    // taking it back: the owner can, and so can the person it was shared with
+    assert.equal((await ann.call('DELETE', `/api/dioramas/${id}/shares/ben`)).json.shares.length, 0);
+    assert.equal((await ben.call('GET', `/api/dioramas/${id}`)).status, 404);
+    await ann.call('POST', `/api/dioramas/${id}/shares`, { username: 'ben' });
+    assert.equal((await ben.call('DELETE', `/api/dioramas/${id}/shares/ben`)).status, 200);
+    assert.equal((await ben.call('GET', `/api/dioramas/${id}`)).status, 404);
+    // deleting the diorama removes the shares with it
+    await ann.call('POST', `/api/dioramas/${id}/shares`, { username: 'ben' });
+    await ann.call('DELETE', `/api/dioramas/${id}`);
+    assert.equal((await ben.call('GET', '/api/dioramas/shared')).json.dioramas.length, 0);
+  });
+
   await test('brute-force protection on login', async () => {
     const attacker = new Client();
     let last;

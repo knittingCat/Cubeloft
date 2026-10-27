@@ -4,7 +4,7 @@ import pg from 'pg';
 // TABLE_PREFIX lets the automated tests use their own throw-away tables in the same database.
 export const PREFIX = process.env.TABLE_PREFIX || '';
 const t = (name) => `${PREFIX}${name}`;
-export const T = { users: t('users'), sessions: t('sessions'), dioramas: t('dioramas'), unlocks: t('unlocks'), reports: t('reports'), classes: t('classes'), members: t('class_members'), feedback: t('feedback'), feedbackMessages: t('feedback_messages') };
+export const T = { users: t('users'), sessions: t('sessions'), dioramas: t('dioramas'), unlocks: t('unlocks'), reports: t('reports'), classes: t('classes'), members: t('class_members'), feedback: t('feedback'), feedbackMessages: t('feedback_messages'), shares: t('diorama_shares') };
 
 function connectionString() {
   const raw = process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL;
@@ -129,6 +129,22 @@ export async function initDb() {
     );
   `);
 
+  // Sharing one diorama with named people: they can look at it, or look and edit when can_edit is on. Kept apart from the
+  // main setup so that a problem here can only break sharing, never stop the site from starting.
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS ${T.shares} (
+        diorama_id INTEGER NOT NULL REFERENCES ${T.dioramas}(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES ${T.users}(id) ON DELETE CASCADE,
+        can_edit BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (diorama_id, user_id)
+      )
+    `);
+  } catch (e) {
+    console.error('[db] could not create the sharing table:', e.message);
+  }
+
   // Case-insensitive uniqueness ("Ann" and "ann" are the same person). Not fatal if old data already clashes.
   try {
     await query(`CREATE UNIQUE INDEX IF NOT EXISTS ${t('users_username_lower')} ON ${T.users} (LOWER(username))`);
@@ -139,5 +155,5 @@ export async function initDb() {
 
 export async function dropAll() {
   if (!PREFIX) throw new Error('refusing to drop tables without TABLE_PREFIX');
-  await query(`DROP TABLE IF EXISTS ${T.feedbackMessages}, ${T.feedback}, ${T.reports}, ${T.unlocks}, ${T.members}, ${T.dioramas}, ${T.classes}, ${T.sessions}, ${T.users} CASCADE`);
+  await query(`DROP TABLE IF EXISTS ${T.shares}, ${T.feedbackMessages}, ${T.feedback}, ${T.reports}, ${T.unlocks}, ${T.members}, ${T.dioramas}, ${T.classes}, ${T.sessions}, ${T.users} CASCADE`);
 }

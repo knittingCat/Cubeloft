@@ -654,6 +654,24 @@ await test('measure: steps along each axis, straight line and the box round both
   assert.equal(measure([2, 2, 2], [2, 2, 2]).label, 'same block');
 });
 
+await test('measure: counts the blocks in the box and finds its middle', async () => {
+  const { countBlocks, centerOf, describe } = await import('../src/measure.js');
+  const w = new World(12);
+  w.setMany([[1, 0, 1, 3], [2, 0, 1, 3], [3, 1, 2, 3], [9, 9, 9, 3]]);
+  assert.deepEqual(countBlocks(w, [1, 0, 1], [3, 1, 2]), { cells: 12, blocks: 3 }); // 3x2x2 spaces, three with a block
+  assert.deepEqual(countBlocks(w, [3, 1, 2], [1, 0, 1]), { cells: 12, blocks: 3 }); // either corner first
+  assert.deepEqual(countBlocks(w, [5, 5, 5], [5, 5, 5]), { cells: 1, blocks: 0 });
+  const odd = centerOf([0, 0, 0], [4, 2, 6]); // 5 x 3 x 7: a single middle block
+  assert.deepEqual([odd.lo, odd.hi], [[2, 1, 3], [2, 1, 3]]);
+  assert.match(odd.text, /the highlighted block/);
+  const even = centerOf([0, 0, 0], [3, 2, 5]); // 4 x 3 x 6: two in the middle along x and z
+  assert.deepEqual([even.lo, even.hi], [[1, 1, 2], [2, 1, 3]]);
+  assert.deepEqual(even.size, [2, 1, 2]);
+  assert.match(even.text, /2×1×2/);
+  assert.equal(describe(w, [1, 0, 1], [3, 1, 2]).startsWith('3×2×2 box: 12 spaces, 3 blocks in it — '), true);
+  assert.match(describe(w, [5, 5, 5], [5, 5, 5]), /^1×1×1 box: 1 space, 0 blocks in it/);
+});
+
 await test('light: a lamp lights a round ball, not a diamond', async () => {
   const { computeLight } = await import('../src/light.js');
   const w = new World(16);
