@@ -1149,7 +1149,7 @@ export class DioramaView {
       const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.05, 0.2, 16, 1, true), new THREE.MeshLambertMaterial({ color: metal, side: THREE.DoubleSide }));
       shade.position.set(0, top + 0.1, 0); // wide end toward the floor
       inner.add(shade);
-      const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshBasicMaterial({ color: 0xfff1b0 }));
+      const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshLambertMaterial({ color: 0xfff1b0, emissive: 0xfff1b0 }));
       bulb.position.set(0, top + 0.2, 0);
       inner.add(bulb);
       root.userData.bulb = bulb;
@@ -1157,7 +1157,7 @@ export class DioramaView {
     } else if (l.kind === 'lamp') {
       box(0.34, 0.06, 0.34, 0x3f3f46, -0.47); // the base against the surface
       box(0.08, 0.14, 0.08, 0x3f3f46, -0.37);
-      const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshBasicMaterial({ color: 0xfff1b0 }));
+      const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshLambertMaterial({ color: 0xfff1b0, emissive: 0xfff1b0 }));
       bulb.position.set(0, -0.2, 0);
       inner.add(bulb);
       root.userData.bulb = bulb;
@@ -1210,7 +1210,12 @@ export class DioramaView {
       const entry = this.lightGroups.get(l.id);
       if (!entry) continue;
       const { bulb, toggle } = entry.group.userData;
-      if (bulb) bulb.material.color.set(this.lampIsLit(l) ? 0xfff1b0 : 0x6b6358);
+      if (bulb) {
+        // a lit bulb glows by itself; an unlit one is just a dull block, lit (or not) by the scene like any other, so it is dark at night
+        const lit = this.lampIsLit(l);
+        bulb.material.color.set(lit ? 0xfff1b0 : 0x8a8274);
+        bulb.material.emissive.set(lit ? 0xfff1b0 : 0x000000);
+      }
       if (toggle) {
         const on = this.groupIsOn(l.group);
         toggle.rotation.x = on ? -0.55 : 0.55;
