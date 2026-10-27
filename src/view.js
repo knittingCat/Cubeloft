@@ -1626,7 +1626,7 @@ export class DioramaView {
     L.headPitch = Math.max(-0.7, Math.min(0.7, L.headPitch));
     const off = this.offset;
     const offZ = this.offsetZ;
-    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + this.world.standOffset(L.x, L.y, L.z) + (lying ? 0.55 : L.pose === 'sitting' || L.pose === 'ledge' ? 0.9 : 1.4), L.z + 0.5 - offZ);
+    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + this.world.standOffset(L.x, L.y, L.z) + (lying ? (L.pose === 'lyingFront' ? 0.12 : 0.55) : L.pose === 'sitting' || L.pose === 'ledge' ? 0.9 : 1.4), L.z + 0.5 - offZ);
     if (lying) at.add(new THREE.Vector3(-1.1 * Math.sin(a), 0, -1.1 * Math.cos(a))); // head end
     this.camera.position.copy(at);
     // On the back the face is up and the view runs toward the feet; on the front the face is down and the view
