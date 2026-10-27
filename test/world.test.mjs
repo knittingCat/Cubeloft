@@ -704,6 +704,38 @@ await test('lights: a lamp that shines down lights a floor within 7 blocks stron
   assert.equal(shut[roofed.index(8, 1, 8)] < 10, true);
 });
 
+await test('light: does not leak through a diagonal wall or a closed door', async () => {
+  const { computeLight } = await import('../src/light.js');
+  const { HEIGHT } = await import('../src/world.js');
+  const passes = (id) => id === 0;
+  // a full-height wall running corner to corner: the blocks touch only at their edges, and no light may slip between them
+  const w = new World(24);
+  w.setMany(Array.from({ length: 24 }, (_, i) => Array.from({ length: HEIGHT }, (_, y) => [i, y, i, 2])).flat());
+  for (const src of [[8, 2, 4, 14], [8, 2, 4, 14, 7], [10, 10, 6, 14, 7]]) {
+    const L = computeLight(w, passes, () => 0, [src], { sky: false });
+    let far = 0;
+    for (let y = 0; y < HEIGHT; y++) for (let z = 0; z < 24; z++) for (let x = 0; x < 24; x++) if (z > x && L[w.index(x, y, z)] > 0) far++;
+    assert.equal(far, 0, `lamp ${src}: nothing lit on the far side`);
+  }
+  // a wall with a two-cell doorway: light goes through while the door is open and stops when it is shut
+  const d = new World(24);
+  d.setMany(d.boxCells([0, 0, 12], [23, HEIGHT - 1, 12]).map(([x, y, z]) => [x, y, z, 2]));
+  d.setMany([[10, 0, 12, 0], [10, 1, 12, 0]]);
+  const behind = (L) => {
+    let n = 0;
+    for (let y = 0; y < HEIGHT; y++) for (let z = 13; z < 24; z++) for (let x = 0; x < 24; x++) if (L[d.index(x, y, z)] > 0) n++;
+    return n;
+  };
+  const open = computeLight(d, passes, () => 0, [[10, 1, 8, 14]], { sky: false });
+  const shut = computeLight(d, passes, () => 0, [[10, 1, 8, 14]], { sky: false, shut: new Set([d.index(10, 0, 12), d.index(10, 1, 12)]) });
+  assert.equal(behind(open) > 100, true);
+  assert.equal(behind(shut), 0);
+  // light still goes round a corner and through steps in a straight (face) path
+  const L = computeLight(w, passes, () => 0, [[8, 2, 4, 14]], { sky: false });
+  assert.equal(L[w.index(8, 2, 4)], 14);
+  assert.equal(L[w.index(8, 2, 5)], 13);
+});
+
 await test('measure: counts the blocks in the box and finds its middle', async () => {
   const { countBlocks, centerOf, describe } = await import('../src/measure.js');
   const w = new World(12);

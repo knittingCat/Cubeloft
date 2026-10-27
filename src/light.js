@@ -11,14 +11,16 @@ export const SKY_LEVEL = 15;
 // `sources` are extra lights standing in free cells (lit lamps): [x, y, z, level] each, or [x, y, z, level, down] for a lamp
 // that shines down (it also lights a cone below it, as far as `down` cells).
 // With { sky: false } only the glowing blocks and `sources` count (the "block light" on its own, used to make lit faces glow).
-export function computeLight(world, passes, emit, sources = [], { sky = true } = {}) {
+// `shut` is an optional Set of cell indexes light cannot go through although no block is there (the cells of closed doors).
+export function computeLight(world, passes, emit, sources = [], { sky = true, shut = null } = {}) {
   const { sx, sz, height: sy, cells } = world;
   const levels = new Uint8Array(cells.length);
   const idx = (x, y, z) => x + sx * (z + sz * y); // matches World.index
+  const pass = (i) => passes(cells[i]) && !(shut && shut.has(i)); // can light be in (and go through) cell i?
   const queue = [];
   for (let z = 0; sky && z < sz; z++) {
     for (let x = 0; x < sx; x++) {
-      for (let y = sy - 1; y >= 0 && passes(cells[idx(x, y, z)]); y--) {
+      for (let y = sy - 1; y >= 0 && pass(idx(x, y, z)); y--) {
         levels[idx(x, y, z)] = SKY_LEVEL;
         queue.push(x, y, z);
       }
@@ -38,7 +40,7 @@ export function computeLight(world, passes, emit, sources = [], { sky = true } =
       const nz = z + DIRS[d + 2];
       if (nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz) continue;
       const i = idx(nx, ny, nz);
-      if (levels[i] < next && passes(cells[i])) {
+      if (levels[i] < next && pass(i)) {
         levels[i] = next;
         queue.push(nx, ny, nz);
       }
@@ -52,7 +54,7 @@ export function computeLight(world, passes, emit, sources = [], { sky = true } =
   const seed = (x, y, z, level) => {
     if (x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz) return;
     const i = idx(x, y, z);
-    if (passes(cells[i]) && near[i] < level) {
+    if (pass(i) && near[i] < level) {
       near[i] = level;
       spread.push(x, y, z);
     }
@@ -68,7 +70,18 @@ export function computeLight(world, passes, emit, sources = [], { sky = true } =
     }
   }
   for (const [x, y, z, level] of sources) seed(x, y, z, level);
-  const open = (x, y, z) => x >= 0 && y >= 0 && z >= 0 && x < sx && y < sy && z < sz && passes(cells[idx(x, y, z)]);
+  const open = (x, y, z) => x >= 0 && y >= 0 && z >= 0 && x < sx && y < sy && z < sz && pass(idx(x, y, z));
+  // Can light step from (x, y, z) by (dx, dy, dz) (each -1, 0 or 1)? Light only travels through faces, so a diagonal step needs a
+  // path of open cells, one axis at a time, in some order: it cannot slip through the edge or corner where blocks touch.
+  const canStep = (x, y, z, dx, dy, dz) => {
+    if (!open(x + dx, y + dy, z + dz)) return false;
+    if ((dx !== 0) + (dy !== 0) + (dz !== 0) === 1) return true;
+    return (
+      (dx !== 0 && open(x + dx, y, z) && canStep(x + dx, y, z, 0, dy, dz)) ||
+      (dy !== 0 && open(x, y + dy, z) && canStep(x, y + dy, z, dx, 0, dz)) ||
+      (dz !== 0 && open(x, y, z + dz) && canStep(x, y, z + dz, dx, dy, 0))
+    );
+  };
   for (let q = 0; q < spread.length; q += 3) {
     const x = spread[q];
     const y = spread[q + 1];
@@ -85,8 +98,7 @@ export function computeLight(world, passes, emit, sources = [], { sky = true } =
           const nx = x + dx;
           const ny = y + dy;
           const nz = z + dz;
-          if (!open(nx, ny, nz)) continue;
-          if (axes > 1 && !((dx && open(x + dx, y, z)) || (dy && open(x, y + dy, z)) || (dz && open(x, y, z + dz)))) continue;
+          if (!canStep(x, y, z, dx, dy, dz)) continue;
           const i = idx(nx, ny, nz);
           if (near[i] < next) {
             near[i] = next;
@@ -120,7 +132,7 @@ export function computeLight(world, passes, emit, sources = [], { sky = true } =
             const px = Math.floor(x + 0.5 + dx * f);
             const py = Math.floor(y + 0.5 - dy * f);
             const pz = Math.floor(z + 0.5 + dz * f);
-            if (px >= 0 && py >= 0 && pz >= 0 && px < sx && py < sy && pz < sz && !passes(cells[idx(px, py, pz)])) clear = false;
+            if (px >= 0 && py >= 0 && pz >= 0 && px < sx && py < sy && pz < sz && !pass(idx(px, py, pz))) clear = false;
           }
           if (clear) near[i] = boosted;
         }

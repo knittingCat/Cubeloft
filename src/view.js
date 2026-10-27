@@ -463,14 +463,27 @@ export class DioramaView {
     return geo;
   }
 
+  // The cells (as world indexes) that the closed doors fill: the lower and upper cell of each. Open doors let light through.
+  shutCells() {
+    const w = this.world;
+    const set = new Set();
+    for (const d of w.doors) {
+      if (d.open) continue;
+      for (const y of [d.y, d.y + 1]) if (w.inBounds(d.x, y, d.z)) set.add(w.index(d.x, y, d.z));
+    }
+    return set;
+  }
+
   // Work out the light for the whole world and give every block instance its six face brightnesses.
   updateLighting() {
     const w = this.world;
     const passes = (id) => id === 0 || !!BLOCK_BY_ID.get(id)?.alpha;
     const emit = (id) => Math.round((BLOCK_BY_ID.get(id)?.glow || 0) * 15);
     const lamps = w.lights.filter((l) => this.lampIsLit(l)).map((l) => [...bulbCell(l), LAMP_LEVEL, l.at === 2 ? HANG_REACH : 0]); // a lamp on a string lights from its bulb, and its aura reaches a floor within HANG_REACH blocks
-    const levels = computeLight(w, passes, emit, lamps);
-    const blockLevels = computeLight(w, passes, emit, lamps, { sky: false }); // lamps and glowing blocks on their own: faces they light shine a little
+    const shut = this.shutCells(); // a closed door stops light just like a wall
+    this.shutKey = [...shut].join();
+    const levels = computeLight(w, passes, emit, lamps, { shut });
+    const blockLevels = computeLight(w, passes, emit, lamps, { sky: false, shut }); // lamps and glowing blocks on their own: faces they light shine a little
     for (const { mesh, cellIdx } of this.typeMeshes.values()) {
       if (!cellIdx) continue;
       const a = mesh.geometry.getAttribute('lightA');
@@ -1085,6 +1098,8 @@ export class DioramaView {
       }
       entry.group.position.set(d.x + 0.5 - off, d.y, d.z + 0.5 - offZ);
     }
+    // opening or closing a door (or adding or removing one) changes where light can go
+    if (this.typeMeshes.size && [...this.shutCells()].join() !== this.shutKey) this.updateLighting();
   }
 
   // id of the door under the pointer, or null
