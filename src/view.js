@@ -941,7 +941,9 @@ export class DioramaView {
     if (lying) {
       // on their back (face up) or on their front (face down); head toward the back of the cell
       g.rotation.x = p.pose === 'lyingFront' ? Math.PI / 2 : -Math.PI / 2;
-      g.position.y = 0.25; // raise so they rest on the floor
+      g.position.y = 0.135; // the torso (0.3 deep, scaled 0.9) rests on the floor
+      // the head is 0.5 deep, so slide it toward the top of the body until its floor side is level with the torso's
+      head.position.z = p.pose === 'lyingFront' ? -0.1 : 0.1;
       if (p.pose === 'lyingFront') g.rotation.y += Math.PI; // keep the head at the same end
     }
     const holder = new THREE.Group();
@@ -1626,7 +1628,7 @@ export class DioramaView {
     L.headPitch = Math.max(-0.7, Math.min(0.7, L.headPitch));
     const off = this.offset;
     const offZ = this.offsetZ;
-    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + this.world.standOffset(L.x, L.y, L.z) + (lying ? (L.pose === 'lyingFront' ? 0.12 : 0.55) : L.pose === 'sitting' || L.pose === 'ledge' ? 0.9 : 1.4), L.z + 0.5 - offZ);
+    const at = new THREE.Vector3(L.x + 0.5 - off, L.y + this.world.standOffset(L.x, L.y, L.z) + (lying ? (L.pose === 'lyingFront' ? 0.1 : 0.5) : L.pose === 'sitting' || L.pose === 'ledge' ? 0.9 : 1.4), L.z + 0.5 - offZ);
     if (lying) at.add(new THREE.Vector3(-1.1 * Math.sin(a), 0, -1.1 * Math.cos(a))); // head end
     this.camera.position.copy(at);
     // On the back the face is up and the view runs toward the feet; on the front the face is down and the view
