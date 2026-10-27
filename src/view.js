@@ -1629,8 +1629,11 @@ export class DioramaView {
     const at = new THREE.Vector3(L.x + 0.5 - off, L.y + this.world.standOffset(L.x, L.y, L.z) + (lying ? 0.55 : L.pose === 'sitting' || L.pose === 'ledge' ? 0.9 : 1.4), L.z + 0.5 - offZ);
     if (lying) at.add(new THREE.Vector3(-1.1 * Math.sin(a), 0, -1.1 * Math.cos(a))); // head end
     this.camera.position.copy(at);
-    const pitch = Math.max(-1.4, Math.min(1.4, (lying ? -1.1 : 0) + L.headPitch));
-    this.camera.rotation.set(-pitch, a + L.headYaw + Math.PI, 0);
+    // On the back the face is up and the view runs toward the feet; on the front the face is down and the view
+    // runs away from the feet (past the head), looking down at the floor.
+    const front = L.pose === 'lyingFront';
+    const pitch = Math.max(-1.4, Math.min(1.4, (lying ? (front ? 1.1 : -1.1) : 0) + L.headPitch));
+    this.camera.rotation.set(-pitch, a + L.headYaw + Math.PI + (front ? Math.PI : 0), 0);
     this.dirty = true;
   }
 
