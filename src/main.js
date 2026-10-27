@@ -626,6 +626,15 @@ function refreshHover(e) {
     view.showGhost(null);
     return;
   }
+  // pointing at a switch (clicking it flips it; Erase also removes a lamp): no block footprint
+  if (tool !== 'light' && !AREA_TOOLS.includes(tool)) {
+    const lightId = lightUnderPointer(ray, hit);
+    const l = lightId != null ? world.getLight(lightId) : null;
+    if (l && (erasing || l.kind === 'switch')) {
+      view.showGhost(null);
+      return;
+    }
+  }
   if (tool === 'light') {
     // pointing at an existing lamp or switch: no ghost; otherwise a ghost where the new one would go
     const l = lightSel != null ? world.getLight(lightSel) : null;
