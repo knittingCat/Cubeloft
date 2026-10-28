@@ -220,14 +220,11 @@ export class DioramaView {
       new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ color: 0x4dd0e1, transparent: true, opacity: 0.14, depthWrite: false })),
     );
     this.selection.visible = false;
-    // paste footprint: one flat green/red plate under every column the pasted blocks occupy (not the bounding box)
+    // paste preview: a see-through copy of the clipboard, built once per clipboard (see buildFootprint) and just moved
     this.footprint = new THREE.Group();
-    const plate = new THREE.PlaneGeometry(0.94, 0.94);
-    plate.rotateX(-Math.PI / 2);
-    this.footprintCells = new THREE.InstancedMesh(plate, new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }), 48 * 48); // 48 is the biggest diorama
-    this.footprintCells.frustumCulled = false;
-    this.footprintCells.count = 0;
-    this.footprint.add(this.footprintCells);
+    this.footprintClip = null;
+    this.footprintFillMat = new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.35, depthWrite: false });
+    this.footprintLineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
     this.footprint.visible = false;
     this.helpers.add(this.selection, this.footprint);
 
@@ -1804,25 +1801,49 @@ export class DioramaView {
   }
 
   // Where a pasted clip (w x h x d) would land with its corner at `origin`; ok=false turns it red.
-  // `columns` is a list of [dx, dz] (see footprintColumns in clipboard.js); `origin` is where its [0, 0] lands.
-  showFootprint(columns, origin, ok) {
+  // The paste preview: every block of `clip` as a faint cube (green fits, red does not) with `origin` as its corner.
+  showFootprint(clip, origin, ok) {
     this.dirty = true;
-    if (!columns || !origin) {
+    if (!clip || !origin) {
       this.footprint.visible = false;
       return;
     }
-    const off = this.offset;
-    const offZ = this.offsetZ;
-    const m = new THREE.Matrix4();
-    const n = Math.min(columns.length, this.footprintCells.instanceMatrix.count);
-    for (let i = 0; i < n; i++) {
-      m.setPosition(origin[0] + columns[i][0] + 0.5 - off, origin[1] + 0.04, origin[2] + columns[i][1] + 0.5 - offZ);
-      this.footprintCells.setMatrixAt(i, m);
-    }
-    this.footprintCells.count = n;
-    this.footprintCells.instanceMatrix.needsUpdate = true;
-    this.footprintCells.material.color.set(ok ? 0x34d399 : 0xff5c5c);
+    if (this.footprintClip !== clip) this.buildFootprint(clip);
+    this.footprint.position.set(origin[0] - this.offset, origin[1], origin[2] - this.offsetZ);
+    this.footprintFillMat.color.set(ok ? 0x34d399 : 0xff5c5c);
     this.footprint.visible = true;
+  }
+
+  // One batch of cubes (a single draw call however many blocks) plus black outlines on the blocks that have an open side.
+  buildFootprint(clip) {
+    for (const o of [...this.footprint.children]) {
+      this.footprint.remove(o);
+      if (o.isLineSegments) o.geometry.dispose();
+    }
+    this.footprintClip = clip;
+    const cells = clip.cells;
+    const fill = new THREE.InstancedMesh(this.geometry, this.footprintFillMat, Math.max(1, cells.length));
+    fill.count = cells.length;
+    fill.frustumCulled = false;
+    fill.renderOrder = 5;
+    const m = new THREE.Matrix4().makeScale(1.002, 1.002, 1.002);
+    const has = new Set(cells.map((c) => c[0] + ',' + c[1] + ',' + c[2]));
+    const cube = new THREE.EdgesGeometry(this.geometry).attributes.position.array;
+    const lines = [];
+    cells.forEach(([x, y, z], i) => {
+      m.setPosition(x + 0.5, y + 0.5, z + 0.5);
+      fill.setMatrixAt(i, m);
+      const buried = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].every(([dx, dy, dz]) => has.has(x + dx + ',' + (y + dy) + ',' + (z + dz)));
+      if (buried) return;
+      for (let k = 0; k < cube.length; k += 3) lines.push(cube[k] + x + 0.5, cube[k + 1] + y + 0.5, cube[k + 2] + z + 0.5);
+    });
+    fill.instanceMatrix.needsUpdate = true;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
+    const edges = new THREE.LineSegments(geo, this.footprintLineMat);
+    edges.frustumCulled = false;
+    edges.renderOrder = 5;
+    this.footprint.add(fill, edges);
   }
 
   setGhostTint(block) {

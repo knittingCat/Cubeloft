@@ -6,7 +6,7 @@ import { initAccount } from './account.js';
 import { api } from './api.js';
 import { createLive } from './live.js';
 import { describe as describeMeasure, centerOf } from './measure.js';
-import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, footprintColumns, placement, symmetricCells, symmetricPlacements } from './clipboard.js';
+import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, placement, symmetricCells, symmetricPlacements } from './clipboard.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -612,13 +612,9 @@ function otherCells(cell) {
 }
 
 let pasteOrigin = null; // where the paste preview last was
-// The paste preview: like Mirror, a see-through copy of every block (green fits, red does not); above 400 blocks, flat plates under them.
+// The paste preview: a see-through copy of every block (green fits, red does not), however many there are.
 function drawPastePreview(origin) {
-  const p = placement(world, clip, origin);
-  if (p.cells.length <= 400) {
-    view.showFootprint(null);
-    view.showMirrorGhosts(p.cells, { color: p.fits ? 0x34d399 : 0xff5c5c, opacity: 0.35 });
-  } else view.showFootprint(footprintColumns(clip), origin, p.fits);
+  view.showFootprint(clip, origin, placement(world, clip, origin).fits);
 }
 
 function refreshHover(e) {
