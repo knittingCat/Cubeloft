@@ -268,7 +268,10 @@ function setTool(t) {
   }
   if (t === 'mirror') view?.showSelection(null);
   view?.showRegion(null, null);
-  if (t !== 'paste') view?.showFootprint(null);
+  if (t !== 'paste') {
+    view?.showFootprint(null);
+    pasteOrigin = null;
+  }
   $('#pasteBar').hidden = t !== 'paste';
   $('#lightBar').hidden = t !== 'light';
   lightSel = null;
@@ -608,6 +611,16 @@ function otherCells(cell) {
   return withSymmetry([cell]).filter((c) => c.join(',') !== key);
 }
 
+let pasteOrigin = null; // where the paste preview last was
+// The paste preview: like Mirror, a see-through copy of every block (green fits, red does not); above 400 blocks, flat plates under them.
+function drawPastePreview(origin) {
+  const p = placement(world, clip, origin);
+  if (p.cells.length <= 400) {
+    view.showFootprint(null);
+    view.showMirrorGhosts(p.cells, { color: p.fits ? 0x34d399 : 0xff5c5c, opacity: 0.35 });
+  } else view.showFootprint(footprintColumns(clip), origin, p.fits);
+}
+
 function refreshHover(e) {
   if (e) hoverInfo = e;
   if (!hoverInfo || !view || isViewOnly() || view.looking) return;
@@ -644,10 +657,12 @@ function refreshHover(e) {
   }
   if (tool === 'paste') {
     view.showGhost(null);
-    if (!clip) return view.showFootprint(null);
-    if (!hit || !hit.prev) return; // pointing past the diorama: the footprint stays where it was
-    const origin = originFor(clip, hit.prev);
-    view.showFootprint(footprintColumns(clip), origin, placement(world, clip, origin).fits);
+    if (!clip) {
+      pasteOrigin = null;
+      return view.showFootprint(null);
+    }
+    if (hit?.prev) pasteOrigin = originFor(clip, hit.prev);
+    if (pasteOrigin) drawPastePreview(pasteOrigin); // pointing past the diorama: it stays where it last was
     return;
   }
   if (!hit) {
