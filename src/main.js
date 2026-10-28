@@ -6,7 +6,7 @@ import { initAccount } from './account.js';
 import { api } from './api.js';
 import { createLive } from './live.js';
 import { describe as describeMeasure, centerOf } from './measure.js';
-import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, placement, symmetricCells, symmetricPlacements } from './clipboard.js';
+import { extract, rotate90, mirrorX, mirrorLineFor, mirrorBox, mirrorPlacement, normalizeBox, originFor, footprintColumns, placement, symmetricCells, symmetricPlacements } from './clipboard.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -644,9 +644,10 @@ function refreshHover(e) {
   }
   if (tool === 'paste') {
     view.showGhost(null);
-    if (!hit || !clip || !hit.prev) return view.showFootprint(null);
+    if (!clip) return view.showFootprint(null);
+    if (!hit || !hit.prev) return; // pointing past the diorama: the footprint stays where it was
     const origin = originFor(clip, hit.prev);
-    view.showFootprint([clip.w, clip.h, clip.d], origin, placement(world, clip, origin).fits);
+    view.showFootprint(footprintColumns(clip), origin, placement(world, clip, origin).fits);
     return;
   }
   if (!hit) {

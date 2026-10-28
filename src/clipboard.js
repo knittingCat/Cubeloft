@@ -108,6 +108,25 @@ export function mirrorPlacement(world, clip, origin, line) {
 }
 
 // Where the clip's corner goes when the user points at a cell: centre it on the cell, bottom layer at that height.
+// The floor squares the clip's blocks stand over: one [dx, dz] per column that has at least one block.
+const columnCache = new WeakMap();
+export function footprintColumns(clip) {
+  let cols = columnCache.get(clip);
+  if (!cols) {
+    const seen = new Set();
+    cols = [];
+    for (const [dx, , dz] of clip.cells) {
+      const k = dx + ',' + dz;
+      if (!seen.has(k)) {
+        seen.add(k);
+        cols.push([dx, dz]);
+      }
+    }
+    columnCache.set(clip, cols);
+  }
+  return cols;
+}
+
 export function originFor(clip, cell) {
   return [cell[0] - Math.floor(clip.w / 2), cell[1], cell[2] - Math.floor(clip.d / 2)];
 }

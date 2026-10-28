@@ -220,12 +220,14 @@ export class DioramaView {
       new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ color: 0x4dd0e1, transparent: true, opacity: 0.14, depthWrite: false })),
     );
     this.selection.visible = false;
+    // paste footprint: one flat green/red plate under every column the pasted blocks occupy (not the bounding box)
     this.footprint = new THREE.Group();
-    this.footprintEdges = new THREE.LineSegments(new THREE.EdgesGeometry(this.geometry), new THREE.LineBasicMaterial({ color: 0xffffff }));
-    this.footprintBody = new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.12, depthWrite: false }));
-    this.footprintPlate = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
-    this.footprintPlate.rotation.x = -Math.PI / 2;
-    this.footprint.add(this.footprintEdges, this.footprintBody, this.footprintPlate);
+    const plate = new THREE.PlaneGeometry(0.94, 0.94);
+    plate.rotateX(-Math.PI / 2);
+    this.footprintCells = new THREE.InstancedMesh(plate, new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }), 48 * 48); // 48 is the biggest diorama
+    this.footprintCells.frustumCulled = false;
+    this.footprintCells.count = 0;
+    this.footprint.add(this.footprintCells);
     this.footprint.visible = false;
     this.helpers.add(this.selection, this.footprint);
 
@@ -1802,24 +1804,24 @@ export class DioramaView {
   }
 
   // Where a pasted clip (w x h x d) would land with its corner at `origin`; ok=false turns it red.
-  showFootprint(size, origin, ok) {
+  // `columns` is a list of [dx, dz] (see footprintColumns in clipboard.js); `origin` is where its [0, 0] lands.
+  showFootprint(columns, origin, ok) {
     this.dirty = true;
-    if (!size || !origin) {
+    if (!columns || !origin) {
       this.footprint.visible = false;
       return;
     }
     const off = this.offset;
     const offZ = this.offsetZ;
-    const [w, h, d] = size;
-    this.footprint.position.set(origin[0] + w / 2 - off, origin[1] + h / 2, origin[2] + d / 2 - offZ);
-    this.footprintEdges.scale.set(w + 0.02, h + 0.02, d + 0.02);
-    this.footprintBody.scale.set(w, h, d);
-    this.footprintPlate.scale.set(w, d, 1);
-    this.footprintPlate.position.set(0, -h / 2 + 0.04, 0);
-    const color = ok ? 0x34d399 : 0xff5c5c;
-    this.footprintBody.material.color.set(color);
-    this.footprintPlate.material.color.set(color);
-    this.footprintEdges.material.color.set(ok ? 0xffffff : 0xff8a8a);
+    const m = new THREE.Matrix4();
+    const n = Math.min(columns.length, this.footprintCells.instanceMatrix.count);
+    for (let i = 0; i < n; i++) {
+      m.setPosition(origin[0] + columns[i][0] + 0.5 - off, origin[1] + 0.04, origin[2] + columns[i][1] + 0.5 - offZ);
+      this.footprintCells.setMatrixAt(i, m);
+    }
+    this.footprintCells.count = n;
+    this.footprintCells.instanceMatrix.needsUpdate = true;
+    this.footprintCells.material.color.set(ok ? 0x34d399 : 0xff5c5c);
     this.footprint.visible = true;
   }
 
