@@ -36,6 +36,9 @@ export const BLOCKS = [
   { id: 33, name: 'Blue planks', tex: 'planks:58,100,190' },
   { id: 34, name: 'Indigo planks', tex: 'planks:68,60,150' },
   { id: 35, name: 'Violet planks', tex: 'planks:140,70,170' },
+  // ids 36 and up are stairs (grid cells are one byte, so at most 255): new blocks take ids from 250 DOWN, and a new block
+  // goes at the END of this list so every existing stair id stays the same. The test in world.test.mjs checks for clashes.
+  { id: 250, name: 'Hay', tex: { top: 'hayTop', side: 'haySide', bottom: 'hayTop' } },
 ];
 
 // ---- stairs: a block variant with three steps (heights 1/3, 2/3, 1). A stair is stored in the grid as its own id, one per

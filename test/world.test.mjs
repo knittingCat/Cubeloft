@@ -777,6 +777,7 @@ await test('stairs: ids are unique per block and direction, and turn and flip li
   const { BLOCKS, BLOCK_BY_ID, STAIR_BLOCKS, stairId, isStair, turnStair, flipStair } = await import('../src/blocks.js');
   const ids = new Set([...BLOCKS, ...STAIR_BLOCKS].map((b) => b.id));
   assert.equal(ids.size, BLOCKS.length + STAIR_BLOCKS.length);
+  assert.ok(Math.max(...ids) <= 255, 'grid cells are one byte');
   assert.equal(Math.max(...ids) < 256, true);
   assert.equal(stairId(9, 0), 0, 'water cannot be stairs');
   assert.equal(stairId(10, 0), 0, 'lava cannot be stairs');

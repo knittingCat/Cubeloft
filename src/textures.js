@@ -89,6 +89,25 @@ const PAINTERS = {
     noise(ctx, r, [219, 203, 142], 18);
     speckles(ctx, r, [190, 172, 116], 10);
   },
+  hayTop(ctx, r) {
+    noise(ctx, r, [214, 178, 62], 30);
+    // the cut ends of the straw: a darker rim, a paler ring inside it, and short strands
+    for (let i = 0; i < N; i++) for (const [x, y] of [[i, 0], [i, N - 1], [0, i], [N - 1, i]]) px(ctx, x, y, [160, 118, 36]);
+    for (let i = 3; i < N - 3; i++) for (const [x, y] of [[i, 3], [i, N - 4], [3, i], [N - 4, i]]) px(ctx, x, y, [238, 206, 96]);
+    speckles(ctx, r, [176, 132, 40], 20);
+  },
+  haySide(ctx, r) {
+    noise(ctx, r, [214, 178, 62], 24);
+    // vertical straw
+    for (let x = 0; x < N; x++) {
+      if (r() < 0.45) continue;
+      const light = r() < 0.5;
+      for (let y = 0; y < N; y++) if (r() < 0.8) px(ctx, x, y, light ? [236, 204, 94] : [178, 136, 44]);
+    }
+    // two bands of twine around the bale
+    for (const y of [3, 4, 11, 12]) for (let x = 0; x < N; x++) px(ctx, x, y, y % 8 === 3 ? [124, 84, 40] : [98, 64, 30]);
+    px(ctx, 0, 0, [160, 118, 36]);
+  },
   sandstone(ctx, r) {
     noise(ctx, r, [218, 202, 146], 12);
     for (const y of [4, 5, 11]) for (let x = 0; x < N; x++) px(ctx, x, y, [190, 172, 118], 0.9);
