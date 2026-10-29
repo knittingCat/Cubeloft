@@ -104,8 +104,8 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 .dthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dtitle { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dmeta { color: var(--muted); font-size: .8rem; }
-.dactions { display: flex; gap: .4rem; }
-.dactions button { flex: 1; padding: .25rem; font-size: .85rem; }
+.dactions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.dactions button { flex: 1 1 auto; padding: .25rem; font-size: .85rem; }
 .sharelist { list-style: none; padding: 0; margin: .4rem 0 .8rem; display: grid; gap: .4rem; }
 .sharelist li { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
 .sharelist li b { min-width: 7rem; }
