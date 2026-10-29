@@ -4,7 +4,7 @@ import { ALL_BLOCKS, BLOCK_BY_ID, isStair } from './blocks.js';
 import { stairGeometry } from './stairgeo.js';
 import { textureCanvas, doorCanvas } from './textures.js';
 import { DOOR_THICKNESS, LIGHT_SIDES, lampLit, bulbCell } from './world.js';
-import { computeLight, faceLevels, brightness, glowAmount, NO_EDGE_LIGHT } from './light.js';
+import { computeLight, faceLevels, brightness, SKY_LEVEL, glowAmount, NO_EDGE_LIGHT } from './light.js';
 
 // Put a switch's number on the plate so it reads upright: on a wall it sits at the bottom end of the plate with the top of the
 // digit pointing up; on a floor or ceiling the top of the digit points north. `rootQ` and `innerEuler` are how the switch is turned
@@ -482,6 +482,7 @@ export class DioramaView {
     const shut = this.shutCells(); // a closed door stops light just like a wall
     this.shutKey = [...shut].join();
     const levels = computeLight(w, passes, emit, lamps, { shut });
+    this.cellLevels = levels;
     const blockLevels = computeLight(w, passes, emit, lamps, { sky: false, shut }); // lamps and glowing blocks on their own: faces they light shine a little
     for (const { mesh, cellIdx } of this.typeMeshes.values()) {
       if (!cellIdx) continue;
@@ -499,6 +500,10 @@ export class DioramaView {
         gb.setXYZ(k, g[3], g[4], g[5]);
       }
       a.needsUpdate = b.needsUpdate = ga.needsUpdate = gb.needsUpdate = true;
+    }
+    for (const p of w.people) {
+      const entry = this.personGroups.get(p.id);
+      if (entry) this.lightPerson(entry.group, p);
     }
     this.dirty = true;
   }
@@ -818,8 +823,18 @@ export class DioramaView {
     const g = new THREE.Group();
     let part = g; // where new pieces go (the head pivot once we reach the head)
     let lower = 0; // height of that pivot
+    const own = new Map(); // this figure's colour materials: each is dimmed to the light where the person stands (see lightPerson)
+    const mat = (hex) => {
+      if (!own.has(hex)) {
+        const m = new THREE.MeshLambertMaterial({ color: hex });
+        m.userData.own = true;
+        m.userData.base = m.color.clone();
+        own.set(hex, m);
+      }
+      return own.get(hex);
+    };
     const add = (w, h, d, x, y, z, hex, face) => {
-      const m = new THREE.Mesh(this.geometry, face ? [this.mat(hex), this.mat(hex), this.mat(hex), this.mat(hex), face, this.mat(hex)] : this.mat(hex));
+      const m = new THREE.Mesh(this.geometry, face ? [mat(hex), mat(hex), mat(hex), mat(hex), face, mat(hex)] : mat(hex));
       m.scale.set(w, h, d);
       m.position.set(x, y - lower + h / 2, z);
       m.castShadow = true;
@@ -903,6 +918,7 @@ export class DioramaView {
     // head with a face on the front
     const face = new THREE.MeshLambertMaterial({ map: this.faceTexture(p.skin) });
     face.userData.own = true; // not shared, so it can be freed with the figure
+    face.userData.base = face.color.clone();
     add(0.5, 0.5, 0.5, 0, 1.4, 0, p.skin, face);
     // hair
     if (p.hairStyle !== 'none') {
@@ -1002,7 +1018,20 @@ export class DioramaView {
         this.personGroups.set(p.id, entry);
       }
       entry.group.position.set(p.x + 0.5 - off, p.y + this.world.standOffset(p.x, p.y, p.z), p.z + 0.5 - offZ); // on a stair block: down on its middle step
+      this.lightPerson(entry.group, p);
     }
+  }
+
+  // People are dimmed like the blocks around them: by the light level of the cell they stand in.
+  lightPerson(group, p) {
+    if (!this.cellLevels) return;
+    const w = this.world;
+    const level = this.cellLevels[w.index(p.x, p.y, p.z)] ?? SKY_LEVEL;
+    const k = brightness(level);
+    group.traverse((o) => {
+      if (!o.material || o.isSprite) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m.userData.own && m.userData.base) m.color.copy(m.userData.base).multiplyScalar(k);
+    });
   }
 
   // ----- doors -----
