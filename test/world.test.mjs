@@ -821,8 +821,8 @@ await test('merging a clone only fills empty cells', () => {
   const clone = new World(8);
   clone.setMany([[1, 0, 1, 4], [2, 0, 2, 4]], { record: false });
   clone.addPerson({ x: 2, y: 1, z: 2 }, { record: false });
-  clone.addLight({ kind: 'switch', at: 3, group: 1, x: 3, y: 1, z: 3 }, { record: false });
-  mine.addLight({ kind: 'switch', at: 3, group: 1, x: 5, y: 1, z: 5 }, { record: false });
+  clone.addLight({ kind: 'switch', at: 3, group: 1, x: 3, y: 0, z: 3 }, { record: false });
+  mine.addLight({ kind: 'switch', at: 3, group: 1, x: 5, y: 0, z: 5 }, { record: false });
   const added = mergeInto(mine, clone);
   assert.equal(mine.get(1, 0, 1), 3, 'my block stays');
   assert.equal(mine.get(2, 0, 2), 4, 'empty cell filled');
