@@ -419,10 +419,9 @@ export async function initAccount(ctx) {
         <div class="chips">${g.members.length ? g.members.map((m) => `<button class="chip" data-user="${esc(m.username)}">${m.locked ? '[Locked] ' : ''}${esc(m.username)} <small>${m.count}</small></button>`).join('') : '<span class="hint">No one has shared anything yet.</span>'}</div>
         <h3>Newest</h3>
         ${cards(g.recent)}
-        <div class="row"><button type="button" data-act="feedback">Feedback: request a feature or report an error</button><button type="button" class="primary" data-act="close">Close</button></div>`,
+        <div class="row"><button type="button" class="primary" data-act="close">Close</button></div>`,
         { wide: true },
       );
-      $('[data-act=feedback]', el).onclick = feedbackEntry;
       wireCards(el);
       el.querySelectorAll('[data-class]').forEach((b) => (b.onclick = () => classView(Number(b.dataset.class))));
       $('#joinForm', el).onsubmit = async (e) => {
