@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { World, encodeWorld, decodeWorld, cleanPerson, PERSON_DEFAULTS } from '../src/world.js';
+import { World, encodeWorld, decodeWorld, cleanPerson, mergeInto, PERSON_DEFAULTS } from '../src/world.js';
 import { measure } from '../src/measure.js';
 
 let n = 0;
@@ -813,6 +813,22 @@ await test('stairs: people standing on a stair block stand on its middle step', 
   assert.equal(w.standOffset(2, 0, 2), 0);
   const back = await decodeWorld(await encodeWorld(w));
   assert.equal(back.get(2, 0, 2), stairId(3, 0), 'stairs survive save and load');
+});
+
+await test('merging a clone only fills empty cells', () => {
+  const mine = new World(8);
+  mine.setMany([[1, 0, 1, 3]], { record: false });
+  const clone = new World(8);
+  clone.setMany([[1, 0, 1, 4], [2, 0, 2, 4]], { record: false });
+  clone.addPerson({ x: 2, y: 1, z: 2 }, { record: false });
+  clone.addLight({ kind: 'switch', at: 3, group: 1, x: 3, y: 1, z: 3 }, { record: false });
+  mine.addLight({ kind: 'switch', at: 3, group: 1, x: 5, y: 1, z: 5 }, { record: false });
+  const added = mergeInto(mine, clone);
+  assert.equal(mine.get(1, 0, 1), 3, 'my block stays');
+  assert.equal(mine.get(2, 0, 2), 4, 'empty cell filled');
+  assert.equal(added.people, 1);
+  assert.equal(added.blocks, 1);
+  assert.notEqual(mine.lights.find((l) => l.x === 3).group, 1, 'the clone switch gets its own number');
 });
 
 console.log(`${n} tests passed`);

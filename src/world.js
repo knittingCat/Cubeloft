@@ -887,6 +887,36 @@ export async function encodeWorld(world) {
   return 'r' + b64(bytes);
 }
 
+// Add everything in `source` to `target` without touching what is already there: blocks only fill empty cells, and a person, door,
+// lamp or sign is skipped where it would not fit. Switch numbers that are already used in `target` move to a free number when one is left,
+// so the clone's switches do not flip the target's lamps. Returns how many of each were added.
+export function mergeInto(target, source) {
+  const added = { blocks: 0, people: 0, doors: 0, lights: 0, labels: 0 };
+  const fill = [];
+  for (let i = 0; i < source.cells.length; i++) {
+    const id = source.cells[i];
+    if (!id) continue;
+    const [x, y, z] = source.coords(i);
+    if (target.inBounds(x, y, z) && !target.get(x, y, z)) fill.push([x, y, z, id]);
+  }
+  added.blocks = target.setMany(fill, { record: false });
+  for (const l of source.labels) if (target.inBounds(l.x, l.y, l.z) && target.addLabel(l.x, l.y, l.z, l.text, { record: false })) added.labels++;
+  for (const p of source.people) if (!target.people.some((q) => q.x === p.x && q.y === p.y && q.z === p.z) && target.addPerson({ ...p }, { record: false })) added.people++;
+  for (const d of source.doors) if (target.canPlaceDoor(d.x, d.y, d.z) && target.addDoor({ ...d }, { record: false })) added.doors++;
+  const used = new Set(target.lights.map((l) => l.group));
+  const groupMap = new Map();
+  for (const l of source.lights) {
+    if (!groupMap.has(l.group)) {
+      let g = l.group;
+      if (used.has(g)) for (let n = 1; n <= MAX_LIGHT_GROUP; n++) if (!used.has(n)) { g = n; break; }
+      used.add(g);
+      groupMap.set(l.group, g);
+    }
+    if (target.canPlaceLight(l.x, l.y, l.z, l.at, null, l.string || 0) && target.addLight({ ...l, group: groupMap.get(l.group) }, { record: false })) added.lights++;
+  }
+  return added;
+}
+
 export async function decodeWorld(text) {
   const kind = text[0];
   const body = unb64(text.slice(1));

@@ -123,9 +123,7 @@ let selected = 1;
 let stairs = false; // building places stairs made of the selected block (not water or lava)
 let stairRot = 0; // the way the next stairs climb: 0 north, 1 east, 2 south, 3 west
 let boxA = null;
-let sharedMode = false;
-let openedFromEditLink = false; // started from a #e= link: no starting-scene picker over it
-let hoverInfo = null;
+let sharedMode = false;let hoverInfo = null;
 let selA = null; // first corner of a selection in progress (also used by the Mirror tool)
 let mirrorSel = null; // Mirror tool: the chosen area { a, b, clip, origin }, waiting for the mirror line
 const AREA_TOOLS = ['box', 'select', 'paste', 'mirror', 'measure']; // tools where clicks mark corners or places, not blocks
@@ -435,6 +433,7 @@ function updateBanner(shared) {
     ? `Viewing “${cloud.title}” by ${cloud.owner}. Drag to look around, scroll to zoom, click a person to see through their eyes.`
     : "Viewing a shared diorama. Drag to look around, scroll to zoom, click a person to see through their eyes.";
   $('#reportBtn').hidden = !(viewingOthers && accountApi);
+  $('#cloneBtn').hidden = !accountApi;
   // Someone else's diorama: no toolbar, no palette, no editing.
   document.body.classList.toggle('viewonly', !banner.hidden);
   if (!banner.hidden && view) {
@@ -1611,6 +1610,7 @@ function wireUI() {
 
   $('#helpBtn').addEventListener('click', () => $('#helpDialog').showModal());
   $('#reportBtn').addEventListener('click', () => cloud && accountApi && accountApi.report(cloud.id, cloud.title));
+  $('#cloneBtn').addEventListener('click', () => accountApi && accountApi.clone());
   $('#ownBtn').addEventListener('click', async () => {
     history.replaceState(null, '', location.pathname + location.search);
     await loadStart(false);
@@ -1742,7 +1742,7 @@ function wireUI() {
   });
   window.addEventListener('keyup', () => refreshHover());
   window.addEventListener('hashchange', () => {
-    if (location.hash.startsWith('#s=') || location.hash.startsWith('#d=') || location.hash.startsWith('#e=')) loadStart(true);
+    if (location.hash.startsWith('#s=') || location.hash.startsWith('#d=')) loadStart(true);
   });
 }
 
@@ -1757,18 +1757,6 @@ async function loadStart(allowHash = true) {
       return;
     } catch (err) {
       toast(err.message || "That link didn't work — showing your own diorama instead.", 5000);
-    }
-  }
-  // #e=... opens the diorama as your own new scene to edit and save (#s= below is a look-only copy)
-  if (allowHash && location.hash.startsWith('#e=')) {
-    try {
-      await loadFromText(location.hash.slice(3));
-      openedFromEditLink = true;
-      history.replaceState(null, '', location.pathname + location.search);
-      toast('Opened as a new diorama of your own. Press Save to keep it.', 5000);
-      return;
-    } catch {
-      toast("That link didn't work — showing your own diorama instead.");
     }
   }
   if (allowHash && location.hash.startsWith('#s=')) {
@@ -1882,7 +1870,7 @@ async function main() {
   }
   if (location.search.includes('startpicker')) openStartPicker(); // dev: always show the picker (screenshots)
   else if (signedInDuringBoot) openStartPicker();
-  else if (!location.search.includes('nohelp') && !location.hash.startsWith('#s=') && !location.hash.startsWith('#d=') && !openedFromEditLink) openStartPicker();
+  else if (!location.search.includes('nohelp') && !location.hash.startsWith('#s=') && !location.hash.startsWith('#d=')) openStartPicker();
   booted = true;
   window.blockscape = { get world() { return world; }, get view() { return view; }, setTool, selectBlock, loadFromText, composePicture };
 }

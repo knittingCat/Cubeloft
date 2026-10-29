@@ -1,5 +1,5 @@
 import { api, accountsAvailable, embedded, maxosSignIn, endSession } from './api.js';
-import { encodeWorld } from './world.js';
+import { encodeWorld, decodeWorld, mergeInto } from './world.js';
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -794,5 +794,51 @@ export async function initAccount(ctx) {
     }
   }
 
-  return { openGallery: galleryView, save, promptIfSignedOut, report: (id, title) => reportView(id, title), isSignedIn: () => !!user };
+  // ---------- clone: copy the diorama on screen into your own ----------
+  async function clone() {
+    if (!user) return needSignIn('Sign in to clone this diorama.', clone);
+    const source = await encodeWorld(ctx.getWorld()); // what is on screen now (kept even if you open one of yours below)
+    const pickCount = (a) => `${a.blocks} block${a.blocks === 1 ? '' : 's'}, ${a.people} ${a.people === 1 ? 'person' : 'people'}`;
+    open('<h2>Clone</h2><p class="hint">Loading…</p>');
+    let mine = [];
+    try {
+      mine = (await api('GET', '/api/dioramas/mine')).dioramas;
+    } catch (err) {
+      return ctx.toast(err.message);
+    }
+    const el = open(`
+      <h2>Clone this diorama</h2>
+      <p class="hint">Make a copy you can change. Your own dioramas are not touched unless you merge into one.</p>
+      <div class="row"><button type="button" class="primary" data-act="new">Create new</button></div>
+      <h3>Merge into one of mine</h3>
+      <p class="hint">Adds the blocks, people, doors, lamps and signs to the diorama you pick. They only fill empty cells, so nothing of yours is replaced.</p>
+      <div class="chips">${mine.length ? mine.map((d) => `<button type="button" class="chip" data-merge="${d.id}">${esc(d.title)}</button>`).join('') : '<span class="hint">You have no saved dioramas to merge into.</span>'}</div>
+      <p class="error" id="cloneError" hidden></p>
+      <div class="row"><button type="button" data-act="close">Cancel</button></div>`);
+    $('[data-act=close]', el).onclick = close;
+    $('[data-act=new]', el).onclick = async () => {
+      await ctx.loadScene(source);
+      ctx.toast('This is your own copy now. Save it to keep it.');
+      save();
+    };
+    for (const b of el.querySelectorAll('[data-merge]')) {
+      b.onclick = async () => {
+        for (const x of el.querySelectorAll('button')) x.disabled = true;
+        try {
+          const d = await api('GET', `/api/dioramas/${b.dataset.merge}`);
+          const target = await decodeWorld(d.data);
+          const added = mergeInto(target, await decodeWorld(source));
+          await ctx.loadScene(await encodeWorld(target), { cloud: { id: d.id, title: d.title, owner: d.owner, mine: d.mine, isOwner: d.isOwner, visibility: d.visibility, classId: d.classId, classEdit: d.classEdit, shareEdit: d.shareEdit } });
+          await api('POST', '/api/dioramas', { id: d.id, title: d.title, data: await encodeWorld(ctx.getWorld()), thumb: ctx.makeThumb(), visibility: d.visibility });
+          ctx.toast(`Merged into “${d.title}”: ${pickCount(added)}, ${added.doors} door${added.doors === 1 ? '' : 's'}, ${added.lights} lamp${added.lights === 1 ? '' : 's'}/switch${added.lights === 1 ? '' : 'es'}.`);
+          close();
+        } catch (err) {
+          for (const x of el.querySelectorAll('button')) x.disabled = false;
+          fail($('#cloneError', el), err);
+        }
+      };
+    }
+  }
+
+  return { openGallery: galleryView, save, clone, promptIfSignedOut, report: (id, title) => reportView(id, title), isSignedIn: () => !!user };
 }
