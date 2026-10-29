@@ -303,6 +303,7 @@ export class DioramaView {
     this.stars.visible = s.stars;
     this.glowScale.value = s.glow;
     this.applyGlow();
+    this.shadeFigures();
     // lamps set to a time of day go on or off with the sky
     if (this.typeMeshes.size && this.world.lights.some((l) => l.kind === 'lamp' && l.mode === 'time')) {
       this.updateLighting();
@@ -501,10 +502,8 @@ export class DioramaView {
       }
       a.needsUpdate = b.needsUpdate = ga.needsUpdate = gb.needsUpdate = true;
     }
-    for (const p of w.people) {
-      const entry = this.personGroups.get(p.id);
-      if (entry) this.lightPerson(entry.group, p);
-    }
+    this.cellGlow = blockLevels;
+    this.shadeFigures();
     this.dirty = true;
   }
 
@@ -829,6 +828,7 @@ export class DioramaView {
         const m = new THREE.MeshLambertMaterial({ color: hex });
         m.userData.own = true;
         m.userData.base = m.color.clone();
+        m.emissive.setRGB(0, 0, 0);
         own.set(hex, m);
       }
       return own.get(hex);
@@ -919,6 +919,7 @@ export class DioramaView {
     const face = new THREE.MeshLambertMaterial({ map: this.faceTexture(p.skin) });
     face.userData.own = true; // not shared, so it can be freed with the figure
     face.userData.base = face.color.clone();
+    face.emissiveMap = face.map; // so the lamp glow keeps the face's detail
     add(0.5, 0.5, 0.5, 0, 1.4, 0, p.skin, face);
     // hair
     if (p.hairStyle !== 'none') {
@@ -1022,16 +1023,52 @@ export class DioramaView {
     }
   }
 
+  shadeFigures() {
+    for (const p of this.world.people) {
+      const entry = this.personGroups.get(p.id);
+      if (entry) this.lightPerson(entry.group, p);
+    }
+    for (const d of this.world.doors) {
+      const entry = this.doorGroups.get(d.id);
+      if (entry) this.lightDoor(entry.group, d);
+    }
+  }
+
   // People are dimmed like the blocks around them: by the light level of the cell they stand in.
   lightPerson(group, p) {
+    this.shade(group, [p.x, p.y, p.z]);
+  }
+
+  // Shade a figure or door like a block: dimmed by the sky/lamp light of its cell, and shining a little on its own where a lamp
+  // lights it. `cells` are the [x, y, z] cells it fills; the brightest one counts.
+  shade(group, ...cells) {
     if (!this.cellLevels) return;
     const w = this.world;
-    const level = this.cellLevels[w.index(p.x, p.y, p.z)] ?? SKY_LEVEL;
+    let level = 0;
+    let glow = 0;
+    for (const [x, y, z] of cells) {
+      if (x < 0 || y < 0 || z < 0 || x >= w.sx || y >= w.height || z >= w.sz) continue;
+      const i = w.index(x, y, z);
+      level = Math.max(level, this.cellLevels[i]);
+      glow = Math.max(glow, this.cellGlow[i]);
+    }
     const k = brightness(level);
+    const g = glowAmount(glow) * this.glowScale.value;
     group.traverse((o) => {
       if (!o.material || o.isSprite) return;
-      for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m.userData.own && m.userData.base) m.color.copy(m.userData.base).multiplyScalar(k);
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (!m.userData.own || !m.userData.base) continue;
+        m.color.copy(m.userData.base).multiplyScalar(k);
+        m.emissive.copy(m.userData.base).multiplyScalar(g);
+      }
     });
+  }
+
+  // The cells around a door (its two cells and the ones beside them), since a closed door fills its own cells and stops light there.
+  lightDoor(group, d) {
+    const cells = [];
+    for (const y of [d.y, d.y + 1]) for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) cells.push([d.x + dx, y, d.z + dz]);
+    this.shade(group, ...cells);
   }
 
   // ----- doors -----
@@ -1062,7 +1099,18 @@ export class DioramaView {
     const T = DOOR_THICKNESS;
     const g = new THREE.Group();
     const panel = new THREE.Group();
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(1, 2, T), this.doorMaterials(d.wood)); // +x -x +y -y +z -z
+    // this door's own copies of the (shared) plank materials, so it can be shaded to the light around it (see shade)
+    const copies = new Map();
+    const slabMats = this.doorMaterials(d.wood).map((m) => {
+      if (!copies.has(m)) {
+        const c = m.clone();
+        c.userData = { own: true, base: new THREE.Color(1, 1, 1) };
+        c.emissiveMap = c.map;
+        copies.set(m, c);
+      }
+      return copies.get(m);
+    });
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(1, 2, T), slabMats); // +x -x +y -y +z -z
     slab.position.y = 1;
     slab.castShadow = slab.receiveShadow = true;
     panel.add(slab);
@@ -1127,6 +1175,7 @@ export class DioramaView {
         this.doorGroups.set(d.id, entry);
       }
       entry.group.position.set(d.x + 0.5 - off, d.y, d.z + 0.5 - offZ);
+      this.lightDoor(entry.group, d);
     }
     // opening or closing a door (or adding or removing one) changes where light can go
     if (this.typeMeshes.size && [...this.shutCells()].join() !== this.shutKey) this.updateLighting();
