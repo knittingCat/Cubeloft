@@ -430,8 +430,8 @@ function updateBanner(shared) {
   const viewingOthers = cloud && !cloud.mine;
   banner.hidden = !(shared || viewingOthers);
   $('#bannerText').textContent = viewingOthers
-    ? `Viewing “${cloud.title}” by ${cloud.owner}. Drag to look around, scroll to zoom, click a person to see through their eyes.`
-    : "Viewing a shared diorama. Drag to look around, scroll to zoom, click a person to see through their eyes.";
+    ? `Viewing “${cloud.title}” by ${cloud.owner}. Drag to look around, scroll to zoom, or go into first person.`
+    : "Viewing a shared diorama. Drag to look around, scroll to zoom, or go into first person.";
   $('#reportBtn').hidden = !(viewingOthers && accountApi);
   $('#cloneBtn').hidden = !accountApi;
   // Someone else's diorama: no toolbar, no palette, no editing.
@@ -1049,11 +1049,7 @@ function personAtCells(hit) {
 async function actAt(e, button) {
   if (view.looking) return;
   if (isViewOnly()) {
-    // someone else's diorama: nothing can be changed, but you can still see it through a person's eyes (clicking them)
-    if (button === 2 || e.shiftKey || view.flying) return;
-    const { ray, hit } = currentHit(e);
-    const id = view.personAt(ray) ?? personAtCells(hit);
-    if (id != null) startLooking(id);
+    // someone else's diorama: nothing can be changed (you can still go into first person with the banner button or F)
     return;
   }
   if (animOpen()) return animClick(e, button); // while the Animate bar is open, clicks choose animation steps, not blocks
@@ -1662,6 +1658,7 @@ function wireUI() {
   };
   $('#flyBtn').onclick = toggleFly;
   $('#flyDone').onclick = toggleFly;
+  $('#firstPersonBtn').onclick = toggleFly;
   view.onFlyMove = () => refreshHover();
   $('#lookMatch').onclick = () => view.matchHeadToBody();
   window.addEventListener('keydown', (e) => {
