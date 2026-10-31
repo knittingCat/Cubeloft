@@ -181,9 +181,12 @@ body:has(#lookBar:not([hidden])) #lightBar, body:has(#flyBar:not([hidden])) #lig
 #animBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: stretch; gap: .4rem; background: rgba(18,21,31,.94); border: 1px solid #f59e0b; border-radius: 12px; padding: .5rem .7rem; z-index: 6; font-size: .9rem; width: min(94vw, 44rem); }
 #animBar[hidden] { display: none; }
 body:has(#lookBar:not([hidden])) #animBar, body:has(#flyBar:not([hidden])) #animBar { bottom: 10rem; } /* sit above the POV / fly bar */
-#animBar .animRow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; }
-#animBar .animTogether { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); }
-#animBar button[hidden] { display: none; }
+/* while animating, the header shows only the brand and the animation toolbar */
+body.animating-tools #top > :not(.brand):not(#animTools) { display: none; }
+#animTools { flex-wrap: wrap; }
+#animTools[hidden] { display: none; }
+#animTools .animTogether { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); font-size: .88rem; white-space: nowrap; }
+#animTools button[hidden] { display: none; }
 #animHint { text-align: center; color: #fbbf24; min-height: 1.2em; }
 #animSteps { margin: 0; padding: 0 0 0 1.4rem; max-height: 9rem; overflow-y: auto; color: var(--muted); }
 #animSteps li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .1rem 0; }

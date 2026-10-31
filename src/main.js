@@ -906,6 +906,8 @@ function toggleAnimBar(show = !animOpen()) {
     setAnimMode(null);
   }
   $('#animBar').hidden = !show;
+  $('#animTools').hidden = !show; // the animation toolbar takes the place of the usual ones while it is open
+  document.body.classList.toggle('animating-tools', show);
   $('#animBtn').classList.toggle('active', show);
   if (show) {
     if (!view.looking) setTool('build');
