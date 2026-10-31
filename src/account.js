@@ -1,4 +1,4 @@
-import { api, accountsAvailable, embedded, maxosSignIn, endSession } from './api.js';
+import { api, accountsAvailable, embedded, maxosSignIn, endSession, rememberUnlock } from './api.js';
 import { encodeWorld, decodeWorld, mergeInto } from './world.js';
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -222,7 +222,6 @@ export async function initAccount(ctx) {
   }
 
   function unlockView({ kind, id, owner, then }) {
-    if (!user) return needSignIn(`${kind === 'gallery' ? `${owner}'s gallery` : `A diorama by ${owner}`} needs a code. Sign in to enter it.`, then);
     const el = open(`
       <h2>Code needed</h2>
       <p>${kind === 'gallery' ? `${esc(owner)}'s gallery` : `A diorama by ${esc(owner)}`} needs a code. Ask ${esc(owner)} for it.</p>
@@ -236,7 +235,8 @@ export async function initAccount(ctx) {
     $('#unlockForm', el).onsubmit = async (e) => {
       e.preventDefault();
       try {
-        await api('POST', '/api/unlock', { kind, id, code: new FormData(e.target).get('code') });
+        const unlockResult = await api('POST', '/api/unlock', { kind, id, code: new FormData(e.target).get('code') });
+        rememberUnlock(unlockResult.token); // signed out: this browser keeps the code's token (signed-in people have it saved on their account)
         then();
       } catch (err) {
         fail($('#unlockError', el), err);
@@ -447,7 +447,7 @@ export async function initAccount(ctx) {
           <button type="button" data-act="newclass">Start a class</button>
         </form>
         <p class="error" id="classError" hidden></p>`
-            : '<p class="hint">Sign in to join a class, open dioramas that need a code, or see ones shared with you. <button type="button" class="link" data-act="signin">Sign in</button></p>'
+            : '<p class="hint">Sign in to join a class or see dioramas shared with you. <button type="button" class="link" data-act="signin">Sign in</button></p>'
         }
         <h3>People</h3>
         <div class="chips">${g.members.length ? g.members.map((m) => `<button class="chip" data-user="${esc(m.username)}">${m.locked ? '[Locked] ' : ''}${esc(m.username)} <small>${m.count}</small></button>`).join('') : '<span class="hint">No one has shared anything yet.</span>'}</div>

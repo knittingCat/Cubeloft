@@ -33,8 +33,8 @@ class Client {
   constructor() {
     this.cookie = '';
   }
-  async call(method, path, body, { csrf = true } = {}) {
-    const headers = { 'content-type': 'application/json' };
+  async call(method, path, body, { csrf = true, headers: extra = {} } = {}) {
+    const headers = { 'content-type': 'application/json', ...extra };
     if (csrf) headers['x-requested-with'] = 'blockscape';
     if (this.cookie) headers.cookie = this.cookie;
     const res = await fetch(base + path, { method, headers, body: body === undefined || method === 'GET' ? undefined : JSON.stringify(body) });
@@ -178,6 +178,25 @@ try {
     assert.equal((await ben.call('POST', '/api/unlock', { kind: 'gallery', id: ownerId, code: 'sesame' })).status, 200);
     assert.equal((await ben.call('GET', `/api/dioramas/${galleryId}`)).status, 200);
     assert.equal((await ann.call('GET', '/api/gallery/ann')).json.dioramas.length, 1); // owner never locked out
+  });
+
+  await test('a code can be entered without signing in; the token stops working when the code changes', async () => {
+    const anon = new Client();
+    const blocked = await anon.call('GET', `/api/dioramas/${galleryId}`);
+    assert.equal(blocked.status, 403);
+    const ownerId = blocked.json.ownerId;
+    assert.equal((await anon.call('POST', '/api/unlock', { kind: 'gallery', id: ownerId, code: 'nope' })).status, 403);
+    const ok = await anon.call('POST', '/api/unlock', { kind: 'gallery', id: ownerId, code: 'sesame' });
+    assert.equal(ok.status, 200);
+    assert.ok(ok.json.token);
+    const sent = { headers: { 'x-unlocks': ok.json.token } };
+    assert.equal((await anon.call('GET', `/api/dioramas/${galleryId}`, undefined, { headers: { 'x-unlocks': `gallery:${ownerId}:00` } })).status, 403); // a made-up token
+    assert.equal((await anon.call('GET', `/api/dioramas/${galleryId}`, undefined, sent)).status, 200);
+    assert.equal((await anon.call('GET', '/api/gallery/ann', undefined, sent)).json.dioramas.length, 1);
+    assert.equal((await anon.call('GET', '/api/gallery', undefined, sent)).json.recent[0].locked, false);
+    await ann.call('PUT', '/api/me/gallery-code', { code: 'sesame2' }); // the owner changes the code: the old token stops working
+    assert.equal((await anon.call('GET', `/api/dioramas/${galleryId}`, undefined, sent)).status, 403);
+    await ann.call('PUT', '/api/me/gallery-code', { code: 'sesame' }); // put it back for the next test
   });
 
   await test('changing the code locks people out again; clearing it opens the gallery', async () => {

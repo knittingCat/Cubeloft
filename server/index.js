@@ -513,6 +513,19 @@ export function createApp() {
   const unlocked = async (userId, kind, target) =>
     (await query(`SELECT 1 FROM ${T.unlocks} WHERE user_id = $1 AND kind = $2 AND target_id = $3`, [userId, kind, target])).rowCount > 0;
 
+  // People who are not signed in can enter codes too. They keep what they unlocked in their browser as tokens the server signed
+  // (kind:id:signature), and send them with each request in the x-unlocks header. The signature covers the code's current hash,
+  // so a token stops working when the owner changes the code, and nobody can make one without knowing the code.
+  const TOKEN_KEY = crypto.createHash('sha256').update(`unlock:${process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL || ''}`).digest();
+  const unlockToken = (kind, id, hash) => `${kind}:${id}:${crypto.createHmac('sha256', TOKEN_KEY).update(`${kind}:${id}:${hash.slice(-16)}`).digest('hex')}`;
+  const tokenOpens = (req, kind, id, hash) => {
+    const sent = String(req.headers['x-unlocks'] || '');
+    if (!sent || !hash) return false;
+    const want = Buffer.from(unlockToken(kind, id, hash));
+    return sent.split(',').some((t) => t.length === want.length && crypto.timingSafeEqual(Buffer.from(t), want));
+  };
+  const isUnlocked = async (req, kind, id, hash) => (req.user ? unlocked(req.user.id, kind, id) : tokenOpens(req, kind, id, hash));
+
   // A link to a saved diorama that anyone can open without signing in. Only dioramas published to the gallery
   // and not protected by a code qualify (private ones, and ones behind a code, still need the normal route).
   app.get('/api/dioramas/:id/public', wrap(async (req, res) => {
@@ -539,8 +552,8 @@ export function createApp() {
     if (!d) return bad(res, 404, 'Diorama not found.');
     if (!req.user) {
       if (d.visibility !== 'gallery') return bad(res, 404, 'Diorama not found.');
-      if (d.gallery_hash) return bad(res, 403, 'This gallery needs a code.', { locked: 'gallery', ownerId: d.owner_id, owner: d.username });
-      if (d.code_hash) return bad(res, 403, 'This diorama needs a code.', { locked: 'diorama', id: d.id, owner: d.username });
+      if (d.gallery_hash && !tokenOpens(req, 'gallery', d.owner_id, d.gallery_hash)) return bad(res, 403, 'This gallery needs a code.', { locked: 'gallery', ownerId: d.owner_id, owner: d.username });
+      if (d.code_hash && !tokenOpens(req, 'diorama', d.id, d.code_hash)) return bad(res, 403, 'This diorama needs a code.', { locked: 'diorama', id: d.id, owner: d.username });
       return res.json({ id: d.id, title: d.title, data: d.data, owner: d.username, visibility: d.visibility, classId: null, classEdit: false, mine: false, isOwner: false, shareEdit: false });
     }
     const mine = d.owner_id === req.user.id;
@@ -632,7 +645,7 @@ export function createApp() {
   }));
 
   // --- codes ---
-  app.post('/api/unlock', needUser, rateLimiter({ windowMs: 600e3, max: 20 }), wrap(async (req, res) => {
+  app.post('/api/unlock', rateLimiter({ windowMs: 600e3, max: 20 }), wrap(async (req, res) => {
     const { kind, id, code } = req.body;
     if (!['gallery', 'diorama'].includes(kind) || !Number.isInteger(id) || typeof code !== 'string') return bad(res, 400, 'Bad request.');
     const { rows } = kind === 'gallery'
@@ -640,6 +653,7 @@ export function createApp() {
       : await query(`SELECT code_hash AS h FROM ${T.dioramas} WHERE id = $1 AND visibility = 'gallery'`, [id]);
     if (!rows[0]) return bad(res, 404, 'Not found.');
     if (rows[0].h && !(await verifySecret(code, rows[0].h))) return bad(res, 403, 'That code is not right.');
+    if (!req.user) return res.json({ ok: true, token: rows[0].h ? unlockToken(kind, id, rows[0].h) : null }); // signed out: the browser keeps the token
     await query(`INSERT INTO ${T.unlocks} (user_id, kind, target_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [req.user.id, kind, id]);
     res.json({ ok: true });
   }));
@@ -658,36 +672,38 @@ export function createApp() {
   app.get('/api/gallery', wrap(async (req, res) => {
     const me = req.user ? req.user.id : 0; // 0 = not signed in (no user has id 0)
     const members = await query(
-      `SELECT u.id, u.username, COUNT(d.id)::int AS n, (u.gallery_code_hash IS NOT NULL) AS has_code
+      `SELECT u.id, u.username, COUNT(d.id)::int AS n, (u.gallery_code_hash IS NOT NULL) AS has_code, u.gallery_code_hash AS gh
        FROM ${T.users} u JOIN ${T.dioramas} d ON d.owner_id = u.id AND d.visibility = 'gallery'
        GROUP BY u.id ORDER BY MAX(d.updated_at) DESC LIMIT 100`,
     );
     const unlockedRows = req.user ? await query(`SELECT kind, target_id FROM ${T.unlocks} WHERE user_id = $1`, [me]) : { rows: [] };
-    const open = new Set(unlockedRows.rows.map((r) => `${r.kind}:${r.target_id}`));
+    const openSet = new Set(unlockedRows.rows.map((r) => `${r.kind}:${r.target_id}`));
+    const open = { has: (key) => openSet.has(key) }; // signed out: checked against the tokens the browser sent, see isOpen below
+    const isOpen = (kind, id, hash) => (req.user ? open.has(`${kind}:${id}`) : tokenOpens(req, kind, id, hash));
     const recent = await query(
-      `SELECT d.id, d.title, d.thumb, d.updated_at, d.owner_id, u.username, (d.code_hash IS NOT NULL) AS dcode, (u.gallery_code_hash IS NOT NULL) AS gcode
+      `SELECT d.id, d.title, d.thumb, d.updated_at, d.owner_id, u.username, (d.code_hash IS NOT NULL) AS dcode, (u.gallery_code_hash IS NOT NULL) AS gcode, d.code_hash AS dh, u.gallery_code_hash AS gh
        FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id WHERE d.visibility = 'gallery' ORDER BY d.updated_at DESC LIMIT 24`,
     );
     res.json({
-      members: members.rows.map((m) => ({ username: m.username, count: m.n, locked: m.has_code && m.id !== me && !open.has(`gallery:${m.id}`) })),
-      recent: recent.rows.map((r) => card(r, r.owner_id !== me &&((r.gcode && !open.has(`gallery:${r.owner_id}`)) || (r.dcode && !open.has(`diorama:${r.id}`))))),
+      members: members.rows.map((m) => ({ username: m.username, count: m.n, locked: m.has_code && m.id !== me && !isOpen('gallery', m.id, m.gh) })),
+      recent: recent.rows.map((r) => card(r, r.owner_id !== me && ((r.gcode && !isOpen('gallery', r.owner_id, r.gh)) || (r.dcode && !isOpen('diorama', r.id, r.dh))))),
     });
   }));
 
   app.get('/api/gallery/:username', wrap(async (req, res) => {
     const me = req.user ? req.user.id : 0;
-    const { rows: u } = await query(`SELECT id, username, (gallery_code_hash IS NOT NULL) AS has_code FROM ${T.users} WHERE LOWER(username) = LOWER($1)`, [String(req.params.username)]);
+    const { rows: u } = await query(`SELECT id, username, (gallery_code_hash IS NOT NULL) AS has_code, gallery_code_hash AS gh FROM ${T.users} WHERE LOWER(username) = LOWER($1)`, [String(req.params.username)]);
     if (!u[0]) return bad(res, 404, 'No one has that username.');
     const own = u[0].id === me || (req.user && req.user.is_admin);
-    if (u[0].has_code && !own && !(req.user && (await unlocked(me, 'gallery', u[0].id)))) return res.json({ owner: u[0].username, ownerId: u[0].id, locked: 'gallery' });
+    if (u[0].has_code && !own && !(await isUnlocked(req, 'gallery', u[0].id, u[0].gh))) return res.json({ owner: u[0].username, ownerId: u[0].id, locked: 'gallery' });
     const { rows } = await query(
-      `SELECT d.id, d.title, d.thumb, d.updated_at, (d.code_hash IS NOT NULL) AS dcode, u.username FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id
+      `SELECT d.id, d.title, d.thumb, d.updated_at, (d.code_hash IS NOT NULL) AS dcode, d.code_hash AS dh, u.username FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id
        WHERE d.owner_id = $1 AND d.visibility = 'gallery' ORDER BY d.updated_at DESC`,
       [u[0].id],
     );
     const unlockedRows = req.user ? await query(`SELECT target_id FROM ${T.unlocks} WHERE user_id = $1 AND kind = 'diorama'`, [me]) : { rows: [] };
     const open = new Set(unlockedRows.rows.map((r) => r.target_id));
-    res.json({ owner: u[0].username, ownerId: u[0].id, locked: null, dioramas: rows.map((r) => card(r, r.dcode && !own && !open.has(r.id))) });
+    res.json({ owner: u[0].username, ownerId: u[0].id, locked: null, dioramas: rows.map((r) => card(r, r.dcode && !own && !(req.user ? open.has(r.id) : tokenOpens(req, 'diorama', r.id, r.dh)))) });
   }));
 
   // Anyone can report, signed in or not. People who are not signed in are limited more strictly.

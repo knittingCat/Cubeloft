@@ -20,11 +20,30 @@ function keepToken(token) {
   } catch {}
 }
 
+// Codes entered while signed out: the server hands back a signed token for each one, kept here and sent with every request
+// (signed-in people have theirs saved on their account instead, and the server ignores these for them).
+const UNLOCKS_KEY = 'cubeloft_unlocks';
+const readUnlocks = () => {
+  try {
+    const list = JSON.parse(localStorage.getItem(UNLOCKS_KEY) || '[]');
+    return Array.isArray(list) ? list.filter((t) => typeof t === 'string').slice(-40) : [];
+  } catch {
+    return [];
+  }
+};
+export function rememberUnlock(token) {
+  if (!token) return;
+  try {
+    localStorage.setItem(UNLOCKS_KEY, JSON.stringify([...readUnlocks().filter((t) => t.split(':').slice(0, 2).join(':') !== token.split(':').slice(0, 2).join(':')), token]));
+  } catch {}
+}
+
 // Tiny wrapper for the server API. The custom header is required by the server (blocks cross-site forms).
 export async function api(method, path, body) {
+  const unlocks = readUnlocks();
   const res = await fetch(path, {
     method,
-    headers: { 'content-type': 'application/json', 'x-requested-with': 'blockscape', ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {}) },
+    headers: { 'content-type': 'application/json', 'x-requested-with': 'blockscape', ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {}), ...(unlocks.length ? { 'x-unlocks': unlocks.join(',') } : {}) },
     body: body !== undefined && method !== 'GET' ? JSON.stringify(body) : undefined,
     credentials: 'same-origin',
   });
