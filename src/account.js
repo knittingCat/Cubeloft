@@ -258,53 +258,82 @@ export async function initAccount(ctx) {
           .join('')}</div>`
       : '<p class="hint">Nothing here yet.</p>';
 
-  // Share one of your dioramas with named people: they can look, or look and edit. Changes apply at once (no Save needed).
+  // Share one of your dioramas with named people: they can look, or look and edit. Like inviting people on Wish Fish: names go in
+  // as chips in one box (Enter or comma after each), the pencil on a chip lets that person edit too, and nothing changes until
+  // Done, which applies it all and confirms.
   async function shareView(id, title) {
-    let shares;
+    let original; // what is saved now: [{ username, canEdit }]
     try {
-      shares = (await api('GET', `/api/dioramas/${id}/shares`)).shares;
+      original = (await api('GET', `/api/dioramas/${id}/shares`)).shares;
     } catch (err) {
       ctx.toast(err.message);
       return;
     }
-    const draw = () => {
-      const el = open(
-        `<h2>Share “${esc(title)}”</h2>
-        <p class="hint">Share with someone by their username. They find it under “Shared with me” in the Gallery. “Can edit” lets them change it too, and you edit together live.</p>
-        ${shares.length ? `<ul class="sharelist">${shares.map((s) => `<li><b>${esc(s.username)}</b>
-            <label class="inline"><input type="checkbox" data-edit="${esc(s.username)}" ${s.canEdit ? 'checked' : ''}> can edit</label>
-            <button type="button" data-remove="${esc(s.username)}">Stop sharing</button></li>`).join('')}</ul>` : '<p class="hint">Not shared with anyone yet.</p>'}
-        <form id="shareForm" class="inlineform">
-          <input name="username" maxlength="30" autocomplete="off" placeholder="Their username" required>
-          <label class="inline"><input type="checkbox" name="canEdit"> can edit</label>
-          <button class="primary">Share</button>
-        </form>
-        <p class="error" id="shareError" hidden></p>
-        <div class="row"><button type="button" class="primary" data-act="done">Done</button></div>`,
-      );
-      const change = async (method, path, body) => {
-        try {
-          shares = (await api(method, path, body)).shares;
-          // the open diorama learns whether other people can edit it, so live editing starts or stops
-          const cloud = ctx.getCloud();
-          if (cloud && cloud.id === id && cloud.isOwner !== false) {
-            ctx.setCloud({ ...cloud, shareEdit: shares.some((s) => s.canEdit) });
-          }
-          draw();
-        } catch (err) {
-          fail($('#shareError', el), err);
-        }
-      };
-      $('#shareForm', el).onsubmit = (e) => {
-        e.preventDefault();
-        const f = new FormData(e.target);
-        change('POST', `/api/dioramas/${id}/shares`, { username: f.get('username'), canEdit: f.get('canEdit') === 'on' });
-      };
-      el.querySelectorAll('[data-edit]').forEach((box) => (box.onchange = () => change('POST', `/api/dioramas/${id}/shares`, { username: box.dataset.edit, canEdit: box.checked })));
-      el.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = () => change('DELETE', `/api/dioramas/${id}/shares/${encodeURIComponent(b.dataset.remove)}`)));
-      $('[data-act=done]', el).onclick = () => mineView();
+    let chips = original.map((s) => ({ ...s }));
+    const el = open(
+      `<h2>Share “${esc(title)}”</h2>
+      <p class="hint">Type a username and press Enter or comma after each one. They find it under “Shared with me” in the Gallery. The pencil on a name lets that person change it too, and you edit together live. Nothing changes until you press Done.</p>
+      <div class="chipbox"><span id="shareChips"></span><input id="shareInput" maxlength="30" autocomplete="off" placeholder="Their username"></div>
+      <p class="error" id="shareError" hidden></p>
+      <div class="row"><button type="button" class="primary" data-act="done">Done</button></div>`,
+    );
+    const input = $('#shareInput', el);
+    const pencil = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+    const drawChips = () => {
+      $('#shareChips', el).innerHTML = chips
+        .map(
+          (c, i) => `<span class="chip2${c.canEdit ? ' canedit' : ''}">${esc(c.username)}
+            <button type="button" data-edit="${i}" aria-pressed="${c.canEdit}" title="${c.canEdit ? 'Can edit (click to let them only look)' : 'Can only look (click to let them edit too)'}" aria-label="Can edit ${esc(c.username)}">${pencil}</button>
+            <button type="button" data-remove="${i}" title="Stop sharing with ${esc(c.username)}" aria-label="Stop sharing with ${esc(c.username)}">&times;</button></span>`,
+        )
+        .join('');
+      el.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => ((chips[Number(b.dataset.edit)].canEdit = !chips[Number(b.dataset.edit)].canEdit), drawChips())));
+      el.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = () => (chips.splice(Number(b.dataset.remove), 1), drawChips())));
     };
-    draw();
+    const add = () => {
+      const name = input.value.replace(/,/g, '').trim();
+      if (!name) return;
+      if (!chips.some((c) => c.username.toLowerCase() === name.toLowerCase())) chips.push({ username: name, canEdit: false, isNew: true });
+      input.value = '';
+      $('#shareError', el).hidden = true;
+      drawChips();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        add();
+      } else if (e.key === 'Backspace' && !input.value && chips.length && chips[chips.length - 1].isNew) {
+        chips.pop(); // backspace on an empty box takes back the name you just added
+        drawChips();
+      }
+    };
+    $('.chipbox', el).onclick = () => input.focus();
+    drawChips();
+    input.focus();
+    $('[data-act=done]', el).onclick = async () => {
+      add(); // a name still being typed counts
+      const was = new Map(original.map((s) => [s.username.toLowerCase(), s.canEdit]));
+      const now = new Map(chips.map((c) => [c.username.toLowerCase(), c]));
+      const removes = original.filter((s) => !now.has(s.username.toLowerCase()));
+      const sets = chips.filter((c) => !was.has(c.username.toLowerCase()) || was.get(c.username.toLowerCase()) !== c.canEdit);
+      for (const b of el.querySelectorAll('button')) b.disabled = true;
+      let shares = original;
+      try {
+        for (const r of removes) shares = (await api('DELETE', `/api/dioramas/${id}/shares/${encodeURIComponent(r.username)}`)).shares;
+        for (const c of sets) shares = (await api('POST', `/api/dioramas/${id}/shares`, { username: c.username, canEdit: c.canEdit })).shares;
+      } catch (err) {
+        for (const b of el.querySelectorAll('button')) b.disabled = false;
+        fail($('#shareError', el), err);
+        original = (await api('GET', `/api/dioramas/${id}/shares`).catch(() => ({ shares: original }))).shares; // what really got saved before the problem
+        return;
+      }
+      // the open diorama learns whether other people can edit it, so live editing starts or stops
+      const cloud = ctx.getCloud();
+      if (cloud && cloud.id === id && cloud.isOwner !== false) ctx.setCloud({ ...cloud, shareEdit: shares.some((s) => s.canEdit) });
+      const names = shares.map((s) => s.username);
+      ctx.toast(!removes.length && !sets.length ? 'Sharing is unchanged.' : names.length ? `Shared with ${names.join(', ')}.` : 'Not shared with anyone.');
+      mineView();
+    };
   }
 
   function wireCards(el) {

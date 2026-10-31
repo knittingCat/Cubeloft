@@ -110,6 +110,17 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 .sharelist { list-style: none; padding: 0; margin: .4rem 0 .8rem; display: grid; gap: .4rem; }
 .sharelist li { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
 .sharelist li b { min-width: 7rem; }
+/* the Share window's name box: chips and the text box in one bordered field, like the invite box on Wish Fish */
+.chipbox { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; min-height: 2.8rem; padding: .35rem .5rem; margin: .5rem 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; cursor: text; }
+.chipbox:focus-within { border-color: var(--accent); }
+#shareChips { display: contents; }
+#panelBody .chipbox input { flex: 1; min-width: 9rem; width: auto; background: none; border: none; padding: .25rem .3rem; outline: none; }
+.chip2 { display: inline-flex; align-items: center; gap: .25rem; padding: .15rem .3rem .15rem .7rem; background: rgba(91,140,255,.16); border: 1px solid var(--line); border-radius: 999px; font-size: .85rem; }
+.chip2.canedit { border-color: var(--accent); }
+.chip2 button { display: inline-flex; align-items: center; justify-content: center; background: none; border: none; padding: .15rem .25rem; line-height: 1; font-size: 1.05rem; color: var(--muted); cursor: pointer; }
+.chip2 button:hover { color: var(--text); }
+.chip2.canedit button[data-edit] { color: var(--accent); }
+.chip2 button svg { width: 14px; height: 14px; }
 .inlineform { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
 .inlineform input:not([type=checkbox]) { flex: 1; min-width: 12rem; }
 .inlineform label.inline { flex: none; white-space: nowrap; }
