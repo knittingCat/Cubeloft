@@ -867,7 +867,7 @@ export class DioramaView {
         leg.add(shin);
         part = shin;
         lower = 0.3;
-        add(0.24, 0.4, 0.28, x, -0.1, 0, p.bottoms === 'pants' ? p.pants : p.skin);
+        add(0.24, 0.54, 0.28, x, -0.1, 0, p.bottoms === 'pants' ? p.pants : p.skin); // reaches up to the top of the thigh, so the knee is filled in
         add(0.26, 0.1, 0.36, x, -0.1, 0.04, p.shoes);
         part = g;
         lower = 0;
