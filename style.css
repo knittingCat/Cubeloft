@@ -207,7 +207,12 @@ body.animating-tools #top > :not(.brand):not(#animTools) { display: none; }
 #animSteps { margin: 0; padding: 0 0 0 1.4rem; max-height: 9rem; overflow-y: auto; color: var(--muted); }
 #animSteps li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .1rem 0; }
 #animSteps li.together { margin-left: 1rem; list-style-type: circle; }
+#animSteps li > span { flex: 1; }
+#animSteps li[draggable=true] { cursor: grab; }
+#animSteps li.dragover { box-shadow: 0 -2px 0 var(--accent); }
 #animSteps button { padding: 0 .4rem; line-height: 1.3; }
+#animSteps button:disabled { opacity: .3; cursor: default; }
+#animSteps button svg { width: 14px; height: 14px; }
 /* feedback chat */
 .chatlog { display: flex; flex-direction: column; gap: .5rem; max-height: 48vh; overflow-y: auto; margin: .6rem 0; padding: .2rem; }
 .bubble { max-width: 85%; padding: .45rem .7rem; border-radius: 12px; background: var(--panel2); border: 1px solid var(--line); align-self: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; }

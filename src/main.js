@@ -870,6 +870,16 @@ function stepText(s) {
   return `Wait ${s.seconds} second${s.seconds === 1 ? '' : 's'}`;
 }
 
+// Move the step at `from` to place `to` (the steps in between shift along). A step keeps its "same time" tick with it.
+function moveAnimStep(from, to) {
+  if (view.animating || from === to || to < 0 || to >= world.animation.length) return;
+  const steps = world.animation.slice();
+  steps.splice(to, 0, steps.splice(from, 1)[0]);
+  view.clearHold(); // the finished pose goes away with the old order
+  animPos = null;
+  world.setAnimation(steps);
+}
+
 function renderAnimSteps() {
   const list = $('#animSteps');
   if (!list || !world) return;
@@ -889,7 +899,34 @@ function renderAnimSteps() {
         view.clearHold(); // the finished pose of the last step goes away with the steps
         world.setAnimation(world.animation.filter((_, k) => k !== i));
       };
-      li.append(text, del);
+      // steps can be moved: the arrows move one place, or drag a step to where it should go
+      const arrow = (dir, label, d) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+        b.disabled = i + dir < 0 || i + dir >= world.animation.length;
+        b.onclick = () => moveAnimStep(i, i + dir);
+        return b;
+      };
+      li.draggable = true;
+      li.ondragstart = (e) => {
+        e.dataTransfer.setData('text/plain', String(i));
+        e.dataTransfer.effectAllowed = 'move';
+      };
+      li.ondragover = (e) => {
+        e.preventDefault();
+        li.classList.add('dragover');
+      };
+      li.ondragleave = () => li.classList.remove('dragover');
+      li.ondrop = (e) => {
+        e.preventDefault();
+        li.classList.remove('dragover');
+        const from = Number(e.dataTransfer.getData('text/plain'));
+        if (Number.isInteger(from)) moveAnimStep(from, i);
+      };
+      li.append(text, arrow(-1, 'Move this step earlier', 'm6 15 6-6 6 6'), arrow(1, 'Move this step later', 'm6 9 6 6 6-6'), del);
       return li;
     }),
   );
