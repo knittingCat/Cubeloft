@@ -122,6 +122,26 @@ async function canLiveEdit(userId, dioramaId) {
   return (await query(`SELECT 1 FROM ${T.members} WHERE class_id = $1 AND user_id = $2`, [d.class_id, userId])).rowCount > 0;
 }
 
+// The owner can read their own gallery code back, so it is also kept encrypted (AES-256-GCM, with a key made from the
+// database address, which is not stored in the database). Codes checked against people's tries still use only the hash.
+const CODE_KEY = crypto.createHash('sha256').update(`gallery-code:${process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL || ''}`).digest();
+function encryptCode(code) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', CODE_KEY, iv);
+  const body = Buffer.concat([c.update(code, 'utf8'), c.final()]);
+  return [iv, c.getAuthTag(), body].map((b) => b.toString('base64')).join('.');
+}
+function decryptCode(text) {
+  try {
+    const [iv, tag, body] = text.split('.').map((s) => Buffer.from(s, 'base64'));
+    const d = crypto.createDecipheriv('aes-256-gcm', CODE_KEY, iv);
+    d.setAuthTag(tag);
+    return Buffer.concat([d.update(body), d.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
 export function createApp() {
   const app = express();
   app.set('trust proxy', 1);
@@ -251,15 +271,22 @@ export function createApp() {
     res.json({ ok: true });
   }));
 
+  // Your own gallery code, to read back. Codes set before this existed were only kept as a hash, so they come back as null
+  // (the owner sets the code again once to see it).
+  app.get('/api/me/gallery-code', needUser, wrap(async (req, res) => {
+    const { rows } = await query(`SELECT gallery_code_hash IS NOT NULL AS has, gallery_code_enc AS enc FROM ${T.users} WHERE id = $1`, [req.user.id]);
+    res.json({ hasGalleryCode: !!rows[0]?.has, code: rows[0]?.has && rows[0].enc ? decryptCode(rows[0].enc) : null });
+  }));
+
   app.put('/api/me/gallery-code', needUser, wrap(async (req, res) => {
     const code = req.body.code;
     if (code === null || code === '') {
-      await query(`UPDATE ${T.users} SET gallery_code_hash = NULL WHERE id = $1`, [req.user.id]);
+      await query(`UPDATE ${T.users} SET gallery_code_hash = NULL, gallery_code_enc = NULL WHERE id = $1`, [req.user.id]);
       await query(`DELETE FROM ${T.unlocks} WHERE kind = 'gallery' AND target_id = $1`, [req.user.id]);
       return res.json({ ok: true, hasGalleryCode: false });
     }
     if (typeof code !== 'string' || code.length < 3 || code.length > 40) return bad(res, 400, 'A code is 3–40 characters.');
-    await query(`UPDATE ${T.users} SET gallery_code_hash = $1 WHERE id = $2`, [await hashSecret(code), req.user.id]);
+    await query(`UPDATE ${T.users} SET gallery_code_hash = $1, gallery_code_enc = $2 WHERE id = $3`, [await hashSecret(code), encryptCode(code), req.user.id]);
     await query(`DELETE FROM ${T.unlocks} WHERE kind = 'gallery' AND target_id = $1`, [req.user.id]); // everyone must re-enter the new code
     res.json({ ok: true, hasGalleryCode: true });
   }));

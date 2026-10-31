@@ -163,6 +163,9 @@ try {
   await test('gallery code: locked until the right code is entered', async () => {
     assert.equal((await ann.call('PUT', '/api/me/gallery-code', { code: 'ab' })).status, 400);
     assert.equal((await ann.call('PUT', '/api/me/gallery-code', { code: 'sesame' })).json.hasGalleryCode, true);
+    assert.equal((await ann.call('GET', '/api/me/gallery-code')).json.code, 'sesame'); // the owner can read their own code
+    assert.equal((await ben.call('GET', '/api/me/gallery-code')).json.code, null); // and nobody else's
+    assert.equal((await new Client().call('GET', '/api/me/gallery-code')).status, 401);
     const gal = await ben.call('GET', '/api/gallery');
     assert.equal(gal.json.members[0].locked, true);
     assert.equal(gal.json.recent[0].locked, true);

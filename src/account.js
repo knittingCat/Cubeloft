@@ -365,11 +365,13 @@ export async function initAccount(ctx) {
     open('<h2>My dioramas</h2><p class="hint">Loading…</p>', { wide: true });
     try {
       const { dioramas } = await api('GET', '/api/dioramas/mine');
+      const mineCode = user.hasGalleryCode ? (await api('GET', '/api/me/gallery-code').catch(() => ({}))).code : null; // null for codes set before they could be read back
       const el = open(
         `<h2>${esc(user.username)}${user.isAdmin ? ' <small>(admin)</small>' : ''}</h2>
         ${cards(dioramas, { mine: true })}
         <h3>Gallery code</h3>
         <p class="hint">${user.hasGalleryCode ? 'Your gallery needs a code to open.' : 'Anyone can open your gallery.'} You can ask for a code so only people you tell can look.</p>
+        ${user.hasGalleryCode ? (mineCode ? `<p>Your code: <b class="code">${esc(mineCode)}</b></p>` : '<p class="hint">Set the code again below to see it here (it was set before codes could be shown).</p>') : ''}
         <form id="codeForm" class="inlineform">
           <input name="code" maxlength="40" autocomplete="off" placeholder="New gallery code (3+ characters)">
           <button class="primary">Set code</button>

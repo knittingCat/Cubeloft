@@ -119,6 +119,8 @@ export async function initDb() {
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS user_unread BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS admin_unread BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    -- the owner's own gallery code, encrypted (the hash above is what people's codes are checked against; this copy lets the owner read it back)
+    ALTER TABLE ${T.users} ADD COLUMN IF NOT EXISTS gallery_code_enc TEXT;
     -- sent without being signed in: nobody can read the replies, so the admins just read it and close it
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS anonymous BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE TABLE IF NOT EXISTS ${T.feedbackMessages} (
