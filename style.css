@@ -1,5 +1,6 @@
 :root {
   --bg: #12151f; --panel: #1c2030; --panel2: #262b40; --line: #363c58; --text: #eef0f8; --muted: #9aa2c0;
+  --stackedBottom: 10rem; /* where a bar sits when the Fly / person bar is already above the palette; main.js sets it from that bar's real height */
   --accent: #5b8cff; --accent-text: #fff; --danger: #ff6b6b;
 }
 * { box-sizing: border-box; }
@@ -165,7 +166,7 @@ body.viewonly #stage canvas { cursor: grab; }
 #measureBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; align-items: center; gap: .7rem; background: rgba(18,21,31,.94); border: 1px solid #4dd0e1; border-radius: 12px; padding: .5rem .7rem; z-index: 6; font-size: .9rem; width: max-content; max-width: min(94vw, 44rem); }
 #measureBar[hidden] { display: none; }
 #measureBar button { flex: none; padding: .4rem .7rem; }
-body:has(#lookBar:not([hidden])) #measureBar, body:has(#flyBar:not([hidden])) #measureBar { bottom: 10rem; }
+body:has(#lookBar:not([hidden])) #measureBar, body:has(#flyBar:not([hidden])) #measureBar { bottom: var(--stackedBottom); }
 #lightBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: stretch; gap: .4rem; background: rgba(18,21,31,.94); border: 1px solid #facc15; border-radius: 12px; padding: .5rem .7rem; z-index: 6; font-size: .9rem; width: min(94vw, 44rem); }
 #lightBar[hidden], #lightBar [hidden] { display: none; }
 #lightBar .lightRow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; }
@@ -177,10 +178,10 @@ body:has(#lookBar:not([hidden])) #measureBar, body:has(#flyBar:not([hidden])) #m
 #lightBar label { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); }
 #lightTimes { display: inline-flex; gap: .6rem; }
 #lightHint { text-align: center; color: #facc15; min-height: 1.2em; }
-body:has(#lookBar:not([hidden])) #lightBar, body:has(#flyBar:not([hidden])) #lightBar { bottom: 10rem; }
+body:has(#lookBar:not([hidden])) #lightBar, body:has(#flyBar:not([hidden])) #lightBar { bottom: var(--stackedBottom); }
 #animBar { position: absolute; left: 50%; bottom: 5.8rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: stretch; gap: .4rem; background: rgba(18,21,31,.94); border: 1px solid #f59e0b; border-radius: 12px; padding: .5rem .7rem; z-index: 6; font-size: .9rem; width: min(94vw, 44rem); }
 #animBar[hidden] { display: none; }
-body:has(#lookBar:not([hidden])) #animBar, body:has(#flyBar:not([hidden])) #animBar { bottom: 10rem; } /* sit above the POV / fly bar */
+body:has(#lookBar:not([hidden])) #animBar, body:has(#flyBar:not([hidden])) #animBar { bottom: var(--stackedBottom); } /* sit above the POV / fly bar */
 /* while animating, the header shows only the brand and the animation toolbar */
 body.animating-tools #top > :not(.brand):not(#animTools) { display: none; }
 #animTools { flex-wrap: wrap; }

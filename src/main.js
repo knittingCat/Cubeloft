@@ -1658,6 +1658,15 @@ function wireUI() {
     if (view.animating || !world.animation.length) return;
     if (confirm('Remove every animation step?')) world.setAnimation([]);
   };
+  // The Animate, Lamps and Measure bars sit just above the Fly / person bar, whatever height it wraps to.
+  const lowBars = ['#flyBar', '#lookBar'].map((s) => $(s));
+  const stackBars = () => {
+    const h = Math.max(0, ...lowBars.filter((b) => !b.hidden).map((b) => b.offsetHeight));
+    document.documentElement.style.setProperty('--stackedBottom', `calc(5.8rem + ${h}px + .5rem)`);
+  };
+  new ResizeObserver(stackBars).observe(lowBars[0]);
+  new ResizeObserver(stackBars).observe(lowBars[1]);
+  window.addEventListener('resize', stackBars);
   $('#flyBtn').onclick = toggleFly;
   $('#animFly').onclick = toggleFly;
   $('#flyDone').onclick = toggleFly;
