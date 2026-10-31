@@ -839,12 +839,12 @@ function toggleFly() {
   if (view.flying) {
     view.exitFly();
     $('#flyBar').hidden = true;
-    $('#flyBtn').classList.remove('active');
+    for (const b of ['#flyBtn', '#animFly']) $(b).classList.remove('active');
   } else if (view.animating) {
     toast('Stop the animation first.');
   } else if (view.enterFly()) {
     $('#flyBar').hidden = false;
-    $('#flyBtn').classList.add('active');
+    for (const b of ['#flyBtn', '#animFly']) $(b).classList.add('active');
   } else toast('Finish looking through the person first.');
   refreshHover();
 }
@@ -1659,6 +1659,7 @@ function wireUI() {
     if (confirm('Remove every animation step?')) world.setAnimation([]);
   };
   $('#flyBtn').onclick = toggleFly;
+  $('#animFly').onclick = toggleFly;
   $('#flyDone').onclick = toggleFly;
   $('#firstPersonBtn').onclick = toggleFly;
   view.onFlyMove = () => refreshHover();
