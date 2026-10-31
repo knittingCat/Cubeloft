@@ -73,7 +73,7 @@ dialog img { width: 100%; border-radius: 10px; border: 1px solid var(--line); ba
 @media (min-width: 761px) and (max-width: 1250px) {
   .brandname { display: none; }
   #top .group button { padding: .4rem .25rem; }
-  #top button svg { width: 18px; height: 18px; }
+  #top button svg, #top .animTogether svg { width: 18px; height: 18px; }
 }
 
 @media (max-width: 760px) {
@@ -130,7 +130,7 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 
 /* ----- icon buttons ----- */
 #top button, #pasteBar button, #reportBtn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .4rem .45rem; }
-button svg { width: 20px; height: 20px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+button svg, #animTools .animTogether svg { width: 20px; height: 20px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 #accountBtn span:empty { display: none; }
 
 /* someone else's diorama: look around only */
