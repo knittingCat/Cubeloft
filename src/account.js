@@ -129,7 +129,7 @@ export async function initAccount(ctx) {
         <fieldset>
           <legend>Who can see it?</legend>
           <label class="inline"><input type="radio" name="vis" value="private" ${updating && (cloud.visibility === 'gallery' || inClass) ? '' : 'checked'}> Only me</label>
-          <label class="inline"><input type="radio" name="vis" value="gallery" ${updating && cloud.visibility === 'gallery' ? 'checked' : ''}> In my gallery (everyone signed in can look)</label>
+          <label class="inline"><input type="radio" name="vis" value="gallery" ${updating && cloud.visibility === 'gallery' ? 'checked' : ''}> In my gallery (everyone can look)</label>
           ${classes.length ? `<label class="inline"><input type="radio" name="vis" value="class" ${inClass ? 'checked' : ''}> In a class gallery (only that class can look):
             <select name="classId">${classes.map((c) => `<option value="${c.id}" ${inClass && cloud.classId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
           <label class="inline"><input type="checkbox" name="classEdit" ${inClass && cloud.classEdit ? 'checked' : ''}> Let people in that class edit it too (only if you chose a class above)</label>` : ''}
@@ -222,6 +222,7 @@ export async function initAccount(ctx) {
   }
 
   function unlockView({ kind, id, owner, then }) {
+    if (!user) return needSignIn(`${kind === 'gallery' ? `${owner}'s gallery` : `A diorama by ${owner}`} needs a code. Sign in to enter it.`, then);
     const el = open(`
       <h2>Code needed</h2>
       <p>${kind === 'gallery' ? `${esc(owner)}'s gallery` : `A diorama by ${esc(owner)}`} needs a code. Ask ${esc(owner)} for it.</p>
@@ -339,7 +340,7 @@ export async function initAccount(ctx) {
         `<h2>${esc(user.username)}${user.isAdmin ? ' <small>(admin)</small>' : ''}</h2>
         ${cards(dioramas, { mine: true })}
         <h3>Gallery code</h3>
-        <p class="hint">${user.hasGalleryCode ? 'Your gallery needs a code to open.' : 'Anyone signed in can open your gallery.'} You can ask for a code so only people you tell can look.</p>
+        <p class="hint">${user.hasGalleryCode ? 'Your gallery needs a code to open.' : 'Anyone can open your gallery.'} You can ask for a code so only people you tell can look.</p>
         <form id="codeForm" class="inlineform">
           <input name="code" maxlength="40" autocomplete="off" placeholder="New gallery code (3+ characters)">
           <button class="primary">Set code</button>
@@ -401,20 +402,24 @@ export async function initAccount(ctx) {
     open('<h2>Gallery</h2><p class="hint">Loading…</p>', { wide: true });
     try {
       const g = await api('GET', '/api/gallery');
-      const { classes } = await api('GET', '/api/classes');
-      const { dioramas: withMe } = await api('GET', '/api/dioramas/shared').catch(() => ({ dioramas: [] }));
+      const { classes } = user ? await api('GET', '/api/classes') : { classes: [] };
+      const { dioramas: withMe } = user ? await api('GET', '/api/dioramas/shared').catch(() => ({ dioramas: [] })) : { dioramas: [] };
       const el = open(
         `<h2>Gallery</h2>
         <p class="hint">Dioramas other people chose to share. Be kind — use Report if something isn't okay.</p>
         ${withMe.length ? `<h3>Shared with me</h3>${cards(withMe)}` : ''}
-        <h3>My classes</h3>
+        ${
+          user
+            ? `<h3>My classes</h3>
         <div class="chips">${classes.length ? classes.map((c) => `<button class="chip" data-class="${c.id}">${esc(c.name)} <small>${c.members}</small></button>`).join('') : '<span class="hint">You are not in a class yet.</span>'}</div>
         <form id="joinForm" class="inlineform">
           <input name="code" maxlength="12" autocomplete="off" placeholder="Class code">
           <button class="primary">Join a class</button>
           <button type="button" data-act="newclass">Start a class</button>
         </form>
-        <p class="error" id="classError" hidden></p>
+        <p class="error" id="classError" hidden></p>`
+            : '<p class="hint">Sign in to join a class, open dioramas that need a code, or see ones shared with you. <button type="button" class="link" data-act="signin">Sign in</button></p>'
+        }
         <h3>People</h3>
         <div class="chips">${g.members.length ? g.members.map((m) => `<button class="chip" data-user="${esc(m.username)}">${m.locked ? '[Locked] ' : ''}${esc(m.username)} <small>${m.count}</small></button>`).join('') : '<span class="hint">No one has shared anything yet.</span>'}</div>
         <h3>Newest</h3>
@@ -424,6 +429,11 @@ export async function initAccount(ctx) {
       );
       wireCards(el);
       el.querySelectorAll('[data-class]').forEach((b) => (b.onclick = () => classView(Number(b.dataset.class))));
+      if (!user) {
+        $('[data-act=signin]', el).onclick = () => authView({ after: galleryView });
+        $('[data-act=close]', el).onclick = close;
+        return;
+      }
       $('#joinForm', el).onsubmit = async (e) => {
         e.preventDefault();
         try {
@@ -649,7 +659,7 @@ export async function initAccount(ctx) {
   function feedbackView() {
     const el = open(`
       <h2>Request a feature or report an error</h2>
-      <p class="hint">Tell the developer what you would like, or what went wrong. It becomes a chat: you can reply to each other until it is closed. You can have one at a time.</p>
+      <p class="hint">Tell the developer what you would like, or what went wrong. ${user ? 'It becomes a chat: you can reply to each other until it is closed. You can have one at a time.' : 'You do not need an account, but without one you will not see a reply. Sign in first if you want to chat about it.'}</p>
       <form id="feedbackForm">
         <label>What is it? <select name="kind"><option value="feature">I want a new feature</option><option value="error">Something is broken</option></select></label>
         <label>Details <textarea name="message" rows="5" maxlength="1000" required></textarea></label>
@@ -662,6 +672,10 @@ export async function initAccount(ctx) {
       const f = new FormData(e.target);
       try {
         const sent = await api('POST', '/api/feedback', { kind: f.get('kind'), message: f.get('message') });
+        if (!user) {
+          ctx.toast('Thanks — it was sent.');
+          return close();
+        }
         ctx.toast('Thanks — it was sent. Replies will show here.');
         chatView(sent.id);
       } catch (err) {
@@ -773,8 +787,8 @@ export async function initAccount(ctx) {
   // ---------- toolbar ----------
   reportsBtn.onclick = reportsView;
   accountBtn.onclick = () => (user ? mineView() : authView());
-  feedbackBtn.onclick = () => (user ? feedbackEntry() : needSignIn('Sign in to send feedback and chat about it.', feedbackEntry));
-  galleryBtn.onclick = () => (user ? galleryView() : needSignIn('Sign in to see the gallery.', galleryView));
+  feedbackBtn.onclick = () => (user ? feedbackEntry() : feedbackView());
+  galleryBtn.onclick = galleryView;
 
   // Asked every time the site opens while nobody is signed in.
   function promptIfSignedOut() {

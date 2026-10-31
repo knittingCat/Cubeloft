@@ -119,6 +119,8 @@ export async function initDb() {
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS user_unread BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS admin_unread BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    -- sent without being signed in: nobody can read the replies, so the admins just read it and close it
+    ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS anonymous BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE TABLE IF NOT EXISTS ${T.feedbackMessages} (
       id SERIAL PRIMARY KEY,
       feedback_id INTEGER NOT NULL REFERENCES ${T.feedback}(id) ON DELETE CASCADE,

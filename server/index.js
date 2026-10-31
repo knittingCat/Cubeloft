@@ -527,7 +527,8 @@ export function createApp() {
     res.json({ id: d.id, title: d.title, data: d.data, owner: d.username, visibility: d.visibility, mine: !!req.user && d.owner_id === req.user.id });
   }));
 
-  app.get('/api/dioramas/:id', needUser, wrap(async (req, res) => {
+  // Signed-out visitors can open gallery dioramas that have no code (view only); everything else needs an account.
+  app.get('/api/dioramas/:id', wrap(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return bad(res, 404, 'Diorama not found.');
     const { rows } = await query(
@@ -536,6 +537,12 @@ export function createApp() {
     );
     const d = rows[0];
     if (!d) return bad(res, 404, 'Diorama not found.');
+    if (!req.user) {
+      if (d.visibility !== 'gallery') return bad(res, 404, 'Diorama not found.');
+      if (d.gallery_hash) return bad(res, 403, 'This gallery needs a code.', { locked: 'gallery', ownerId: d.owner_id, owner: d.username });
+      if (d.code_hash) return bad(res, 403, 'This diorama needs a code.', { locked: 'diorama', id: d.id, owner: d.username });
+      return res.json({ id: d.id, title: d.title, data: d.data, owner: d.username, visibility: d.visibility, classId: null, classEdit: false, mine: false, isOwner: false, shareEdit: false });
+    }
     const mine = d.owner_id === req.user.id;
     let reviewer = false;
     if (!mine && !req.user.is_admin) {
@@ -647,35 +654,38 @@ export function createApp() {
     updatedAt: r.updated_at,
   });
 
-  app.get('/api/gallery', needUser, wrap(async (req, res) => {
+  // The gallery can be looked at without signing in; codes can only be entered by signed-in people, so code-protected ones stay locked.
+  app.get('/api/gallery', wrap(async (req, res) => {
+    const me = req.user ? req.user.id : 0; // 0 = not signed in (no user has id 0)
     const members = await query(
       `SELECT u.id, u.username, COUNT(d.id)::int AS n, (u.gallery_code_hash IS NOT NULL) AS has_code
        FROM ${T.users} u JOIN ${T.dioramas} d ON d.owner_id = u.id AND d.visibility = 'gallery'
        GROUP BY u.id ORDER BY MAX(d.updated_at) DESC LIMIT 100`,
     );
-    const unlockedRows = await query(`SELECT kind, target_id FROM ${T.unlocks} WHERE user_id = $1`, [req.user.id]);
+    const unlockedRows = req.user ? await query(`SELECT kind, target_id FROM ${T.unlocks} WHERE user_id = $1`, [me]) : { rows: [] };
     const open = new Set(unlockedRows.rows.map((r) => `${r.kind}:${r.target_id}`));
     const recent = await query(
       `SELECT d.id, d.title, d.thumb, d.updated_at, d.owner_id, u.username, (d.code_hash IS NOT NULL) AS dcode, (u.gallery_code_hash IS NOT NULL) AS gcode
        FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id WHERE d.visibility = 'gallery' ORDER BY d.updated_at DESC LIMIT 24`,
     );
     res.json({
-      members: members.rows.map((m) => ({ username: m.username, count: m.n, locked: m.has_code && m.id !== req.user.id && !open.has(`gallery:${m.id}`) })),
-      recent: recent.rows.map((r) => card(r, r.owner_id !== req.user.id && ((r.gcode && !open.has(`gallery:${r.owner_id}`)) || (r.dcode && !open.has(`diorama:${r.id}`))))),
+      members: members.rows.map((m) => ({ username: m.username, count: m.n, locked: m.has_code && m.id !== me && !open.has(`gallery:${m.id}`) })),
+      recent: recent.rows.map((r) => card(r, r.owner_id !== me &&((r.gcode && !open.has(`gallery:${r.owner_id}`)) || (r.dcode && !open.has(`diorama:${r.id}`))))),
     });
   }));
 
-  app.get('/api/gallery/:username', needUser, wrap(async (req, res) => {
+  app.get('/api/gallery/:username', wrap(async (req, res) => {
+    const me = req.user ? req.user.id : 0;
     const { rows: u } = await query(`SELECT id, username, (gallery_code_hash IS NOT NULL) AS has_code FROM ${T.users} WHERE LOWER(username) = LOWER($1)`, [String(req.params.username)]);
     if (!u[0]) return bad(res, 404, 'No one has that username.');
-    const own = u[0].id === req.user.id || req.user.is_admin;
-    if (u[0].has_code && !own && !(await unlocked(req.user.id, 'gallery', u[0].id))) return res.json({ owner: u[0].username, ownerId: u[0].id, locked: 'gallery' });
+    const own = u[0].id === me || (req.user && req.user.is_admin);
+    if (u[0].has_code && !own && !(req.user && (await unlocked(me, 'gallery', u[0].id)))) return res.json({ owner: u[0].username, ownerId: u[0].id, locked: 'gallery' });
     const { rows } = await query(
       `SELECT d.id, d.title, d.thumb, d.updated_at, (d.code_hash IS NOT NULL) AS dcode, u.username FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id
        WHERE d.owner_id = $1 AND d.visibility = 'gallery' ORDER BY d.updated_at DESC`,
       [u[0].id],
     );
-    const unlockedRows = await query(`SELECT target_id FROM ${T.unlocks} WHERE user_id = $1 AND kind = 'diorama'`, [req.user.id]);
+    const unlockedRows = req.user ? await query(`SELECT target_id FROM ${T.unlocks} WHERE user_id = $1 AND kind = 'diorama'`, [me]) : { rows: [] };
     const open = new Set(unlockedRows.rows.map((r) => r.target_id));
     res.json({ owner: u[0].username, ownerId: u[0].id, locked: null, dioramas: rows.map((r) => card(r, r.dcode && !own && !open.has(r.id))) });
   }));
@@ -725,12 +735,18 @@ export function createApp() {
     return { f, mine };
   };
 
-  app.post('/api/feedback', needUser, rateLimiter({ windowMs: 3600e3, max: 10 }), wrap(async (req, res) => {
+  // Anyone can send one. Without an account it is a single message (nobody could read a reply), limited more strictly.
+  const anonFeedbackLimit = rateLimiter({ windowMs: 3600e3, max: 5 });
+  app.post('/api/feedback', rateLimiter({ windowMs: 3600e3, max: 10 }), (req, res, next) => (req.user ? next() : anonFeedbackLimit(req, res, next)), wrap(async (req, res) => {
     const kind = req.body.kind;
     const message = String(req.body.message || '').trim().slice(0, 1000);
     if (!['feature', 'error'].includes(kind)) return bad(res, 400, 'Choose feature request or error.');
     if (!message) return bad(res, 400, 'Please write a few words.');
     // one conversation at a time: finish (close) the open one before starting another
+    if (!req.user) {
+      await query(`INSERT INTO ${T.feedback} (kind, message, anonymous) VALUES ($1,$2,TRUE)`, [kind, message]);
+      return res.json({ ok: true, id: null });
+    }
     const open = await query(`SELECT id FROM ${T.feedback} WHERE user_id = $1 AND status = 'open' LIMIT 1`, [req.user.id]);
     if (open.rows[0]) return bad(res, 409, 'You already have an open conversation. Close it before starting a new one.', { id: open.rows[0].id });
     const { rows } = await query(`INSERT INTO ${T.feedback} (kind, message, user_id) VALUES ($1,$2,$3) RETURNING id`, [kind, message, req.user.id]);
@@ -741,7 +757,7 @@ export function createApp() {
   app.get('/api/feedback', needUser, wrap(async (req, res) => {
     const all = canReadAllFeedback(req.user) && req.query.mine !== '1';
     const { rows } = await query(
-      `SELECT f.id, f.kind, f.message, f.status, f.created_at, f.updated_at, f.user_id, f.user_unread, f.admin_unread, u.username,
+      `SELECT f.id, f.kind, f.message, f.status, f.created_at, f.updated_at, f.user_id, f.user_unread, f.admin_unread, f.anonymous, u.username,
          (SELECT COUNT(*)::int FROM ${T.feedbackMessages} m WHERE m.feedback_id = f.id) AS replies
        FROM ${T.feedback} f LEFT JOIN ${T.users} u ON u.id = f.user_id
        WHERE ${all ? "f.status = 'open'" : 'f.user_id = $1'}
@@ -756,7 +772,7 @@ export function createApp() {
         status: r.status,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
-        from: r.username || 'a deleted account',
+        from: r.anonymous ? 'someone not signed in' : r.username || 'a deleted account',
         replies: r.replies,
         unread: r.user_id === req.user.id ? r.user_unread : r.admin_unread,
       })),
@@ -777,10 +793,10 @@ export function createApp() {
       id: f.id,
       kind: f.kind,
       status: f.status,
-      from: f.username || 'a deleted account',
+      from: f.anonymous ? 'someone not signed in' : f.username || 'a deleted account',
       mine,
       messages: [
-        { id: 0, from: f.username || 'a deleted account', fromDev: false, mine, text: f.message, createdAt: f.created_at },
+        { id: 0, from: f.anonymous ? 'someone not signed in' : f.username || 'a deleted account', fromDev: false, mine, text: f.message, createdAt: f.created_at },
         ...msgs.rows.map((m) => ({ id: m.id, from: m.username || 'a deleted account', fromDev: m.from_dev, mine: m.from_dev === !mine, text: m.message, createdAt: m.created_at })),
       ],
     });

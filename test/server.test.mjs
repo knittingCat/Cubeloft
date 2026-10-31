@@ -105,9 +105,15 @@ try {
 
   await test('everything needs a session', async () => {
     const anon = new Client();
-    for (const [m, p] of [['GET', '/api/gallery'], ['GET', '/api/dioramas/mine'], ['POST', '/api/dioramas'], ['GET', '/api/dioramas/1']]) {
+    for (const [m, p] of [['GET', '/api/dioramas/mine'], ['POST', '/api/dioramas'], ['GET', '/api/classes']]) {
       assert.equal((await anon.call(m, p, {})).status, 401, `${m} ${p}`);
     }
+  });
+
+  await test('the gallery and feedback need no session', async () => {
+    const anon = new Client();
+    assert.equal((await anon.call('GET', '/api/gallery')).status, 200);
+    assert.equal((await anon.call('GET', '/api/dioramas/1')).status, 404); // not in the gallery (or missing): nothing leaks
   });
 
   let privateId;
@@ -140,6 +146,10 @@ try {
     assert.equal(open.status, 200);
     assert.equal(open.json.owner, 'Ann');
     assert.equal(open.json.mine, false);
+    const anon = new Client(); // not signed in: can look too
+    assert.equal((await anon.call('GET', '/api/gallery')).json.recent.length, 1);
+    assert.equal((await anon.call('GET', `/api/dioramas/${galleryId}`)).json.mine, false);
+    assert.equal((await anon.call('GET', '/api/gallery/ann')).json.dioramas.length, 1);
     const user = await ben.call('GET', '/api/gallery/ann');
     assert.equal(user.json.dioramas.length, 1);
   });
@@ -335,7 +345,8 @@ try {
   });
 
   await test('feedback: one open conversation each; only the reader account (dee_admin here) sees everyone\'s', async () => {
-    assert.equal((await new Client().call('POST', '/api/feedback', { kind: 'feature', message: 'x' })).status, 401);
+    assert.equal((await new Client().call('POST', '/api/feedback', { kind: 'bogus', message: 'x' })).status, 400); // signed out is allowed, but still validated
+    assert.equal((await new Client().call('GET', '/api/feedback')).status, 401); // reading is not
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'bogus', message: 'x' })).status, 400);
     assert.equal((await ben.call('POST', '/api/feedback', { kind: 'error', message: '  ' })).status, 400);
     const first = await ben.call('POST', '/api/feedback', { kind: 'feature', message: 'Add doors' });
