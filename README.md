@@ -27,6 +27,7 @@ Live site: https://cubeloft.onrender.com
 - Picture: a PNG with an optional title and caption bar.
 - Copy link: only on your own diorama cards in My dioramas (no toolbar button, not on other people's cards). It copies a short link (`/#d=<id>`) that anyone can open without signing in; only everyone-gallery dioramas without a code have one.
 - Save a diorama to your account. It also autosaves in the browser.
+- Admins can open any diorama, private ones included, from a terminal: `CUBELOFT_USER=<admin> CUBELOFT_PASSWORD=<password> node scripts/open-diorama.mjs <id>` signs in, fetches it and opens it view-only in the browser (`--print` shows the link instead).
 - Anyone opening someone else's diorama sees it view-only, with Report, Clone and First person buttons (First person is the same as Fly, F).
 
 **Accounts and the class gallery** (when the site runs with its server)
