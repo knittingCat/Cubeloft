@@ -109,8 +109,10 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 .sharelist { list-style: none; padding: 0; margin: .4rem 0 .8rem; display: grid; gap: .4rem; }
 .sharelist li { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
 .sharelist li b { min-width: 7rem; }
-.inlineform { display: flex; gap: .4rem; flex-wrap: wrap; }
-.inlineform input { flex: 1; min-width: 12rem; }
+.inlineform { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+.inlineform input:not([type=checkbox]) { flex: 1; min-width: 12rem; }
+.inlineform label.inline { flex: none; white-space: nowrap; }
+.inlineform button { flex: none; }
 #reportBtn { background: #5a2a2a; border-color: #8a4a4a; }
 
 /* full-page sign-in */
