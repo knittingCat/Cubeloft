@@ -1,10 +1,20 @@
 // Pure voxel-world logic: no DOM, no three.js. Cell (x, y, z): x/z in [0, size), y in [0, HEIGHT).
 // A cell occupies [x, x+1] x [y, y+1] x [z, z+1]; the diorama stand's top surface is the plane y = 0.
 
-import { isStair } from './blocks.js';
+import { isStair, BLOCK_BY_ID } from './blocks.js';
 
 export const HEIGHT = 32;
 export const STAIR_STEP = 1 / 3; // each stair block has three steps, this much higher than the one before
+
+// How high the stair block turned `rot` is at the spot (lx, lz) inside its cell, each 0..1: 1/3, 2/3 or 1. A stair climbs
+// toward rot (0 north -z, 1 east +x, 2 south +z, 3 west -x), see stairgeo.js.
+export function stairHeightAt(rot, lx, lz) {
+  let dx = lx - 0.5;
+  let dz = lz - 0.5;
+  for (let i = 0; i < ((rot % 4) + 4) % 4; i++) [dx, dz] = [dz, -dx]; // undo the quarter turns: back to a stair climbing north
+  const z = dz + 0.5;
+  return z >= 2 / 3 ? STAIR_STEP : z >= 1 / 3 ? 2 * STAIR_STEP : 1;
+}
 
 // ---- people (decorative figures with a customizable outfit; not part of the block grid) ----
 export const PERSON_CHOICES = {
@@ -173,6 +183,22 @@ export class World {
   // a third of a block lower than the top of the block.
   standOffset(x, y, z) {
     return isStair(this.get(x, y - 1, z)) ? -STAIR_STEP : 0;
+  }
+  // The height of the stair surface at the spot (x, z) (cell units, may be fractional) that something standing at about
+  // height refY can step onto: up to `reach` above refY. Null when that spot has no stair there. Used to keep walking feet
+  // out of the steps (only stairs: flat floors keep the heights people already have).
+  stairSurfaceY(x, z, refY, reach = 0.7) {
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    const top = Math.floor(refY + reach);
+    for (let cy = top; cy >= top - 2; cy--) {
+      const id = this.get(ix, cy, iz);
+      if (!id || id === 9 || id === 10) continue; // empty, or water or lava
+      if (!isStair(id)) return null; // a whole block: the floor as usual
+      const h = cy + stairHeightAt(BLOCK_BY_ID.get(id).stair.rot, x - ix, z - iz);
+      if (h <= refY + reach) return h;
+    }
+    return null;
   }
   coords(i) {
     const x = i % this.sx;

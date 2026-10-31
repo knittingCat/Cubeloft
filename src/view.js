@@ -1432,11 +1432,24 @@ export class DioramaView {
     const holder = entry.group;
     const g = holder.children[0];
     const standing = p.pose === 'standing';
-    holder.position.set(pos.x - this.offset, pos.y + (standing ? Math.abs(Math.sin(phase * Math.PI * 2)) * 0.04 * amp : 0), pos.z - this.offsetZ);
+    const swing = Math.sin(phase * Math.PI * 2) * amp;
+    // On stairs the body rides up with the steps under it: under the body and under each foot (a foot that swings forward
+    // reaches the next step up), so the feet are on the steps and not inside them.
+    let y = pos.y;
+    if (standing) {
+      const [fx, fz] = [Math.sin(facing), Math.cos(facing)]; // the way they face
+      for (const [side, rot] of [[-0.13, swing * 0.55], [0.13, -swing * 0.55]]) {
+        const ahead = 0.04 + 0.7 * Math.sin(rot); // how far the foot is in front of the hip
+        const h = this.world.stairSurfaceY(pos.x + fx * ahead + fz * side, pos.z + fz * ahead - fx * side, pos.y);
+        if (h != null && h > y) y = h;
+      }
+      const h = this.world.stairSurfaceY(pos.x, pos.z, pos.y);
+      if (h != null && h > y) y = h;
+    }
+    holder.position.set(pos.x - this.offset, y + (standing ? Math.abs(Math.sin(phase * Math.PI * 2)) * 0.04 * amp : 0), pos.z - this.offsetZ);
     if (standing) g.rotation.y = facing;
     const limbs = g.userData.limbs;
     if (standing && limbs) {
-      const swing = Math.sin(phase * Math.PI * 2) * amp;
       limbs.legs[0].rotation.x = swing * 0.55;
       limbs.legs[1].rotation.x = -swing * 0.55;
       limbs.arms[0].rotation.x = -swing * 0.45; // each arm swings against the leg on its own side
