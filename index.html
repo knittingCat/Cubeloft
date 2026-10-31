@@ -13,18 +13,18 @@
   <header id="top">
     <div class="brand">🧱 <span class="brandname">Cubeloft</span></div>
     <div class="group" id="animTools" role="toolbar" aria-label="Animation" hidden>
-      <button type="button" id="animAs" title="See it through a person's eyes: Play moves you with their steps">Start as a person</button>
-      <button type="button" id="animWalk">Walk</button>
-      <button type="button" id="animTurn">Turn</button>
-      <button type="button" id="animDoor">Door</button>
-      <button type="button" id="animLight" title="Flip a switch: the lamps on that number go on or off at this point">Switch</button>
-      <button type="button" id="animWait">Wait 1s</button>
-      <label class="animTogether"><input type="checkbox" id="animTogether"> Same time as the step before</label>
-      <button type="button" id="animPlay" class="primary">Play</button>
-      <button type="button" id="animRecord" title="Play it from the start and save the 3D view as a video">Record video</button>
-      <button type="button" id="animStop" hidden>Stop</button>
-      <button type="button" id="animClear">Clear</button>
-      <button type="button" id="animDone">Done</button>
+      <button type="button" id="animAs" aria-label="Start as a person" title="Start as a person: see it through their eyes, and Play moves you with their steps"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/></svg></button>
+      <button type="button" id="animWalk" aria-label="Walk" title="Walk: click a person, then where they should walk to"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="4" cy="12" r="2"/><path d="M8 12h12"/><path d="m16 8 4 4-4 4"/></svg></button>
+      <button type="button" id="animTurn" aria-label="Turn" title="Turn: click a person, then the spot they should turn to face"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      <button type="button" id="animDoor" aria-label="Door" title="Door: click a door to open or close it"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V3h14v18"/><path d="M3 21h18"/><path d="M15 12h.01"/></svg></button>
+      <button type="button" id="animLight" aria-label="Switch" title="Switch: flip a switch, so the lamps on that number go on or off at this point"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></svg></button>
+      <button type="button" id="animWait" aria-label="Wait 1 second" title="Wait 1 second"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+      <label class="animTogether" title="Same time as the step before: the next step you add starts together with the one before it"><input type="checkbox" id="animTogether" aria-label="Same time as the step before"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="13" height="13" rx="2"/><rect x="8" y="8" width="13" height="13" rx="2"/></svg></label>
+      <button type="button" id="animPlay" class="primary" aria-label="Play" title="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg></button>
+      <button type="button" id="animRecord" aria-label="Record video" title="Record video: play it from the start and save the 3D view as a video"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/></svg></button>
+      <button type="button" id="animStop" aria-label="Stop" title="Stop" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+      <button type="button" id="animClear" aria-label="Clear steps" title="Clear: remove every step"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+      <button type="button" id="animDone" aria-label="Done" title="Done: back to the usual toolbar (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button>
     </div>
     <div class="group" id="tools" role="toolbar" aria-label="Tools">
       <button aria-label="Build" data-tool="build" title="Place blocks (B). Press P to place a block at the pointer. Right-click or Shift-click removes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></button>

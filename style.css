@@ -185,7 +185,11 @@ body:has(#lookBar:not([hidden])) #animBar, body:has(#flyBar:not([hidden])) #anim
 body.animating-tools #top > :not(.brand):not(#animTools) { display: none; }
 #animTools { flex-wrap: wrap; }
 #animTools[hidden] { display: none; }
-#animTools .animTogether { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); font-size: .88rem; white-space: nowrap; }
+/* "same time as the step before": a checkbox drawn as an icon button that lights up when on */
+#animTools .animTogether { display: inline-flex; align-items: center; justify-content: center; padding: .4rem .7rem; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); color: var(--text); cursor: pointer; }
+#animTools .animTogether input { position: absolute; opacity: 0; pointer-events: none; }
+#animTools .animTogether:has(input:checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
+#animTools .animTogether:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 #animTools button[hidden] { display: none; }
 #animHint { text-align: center; color: #fbbf24; min-height: 1.2em; }
 #animSteps { margin: 0; padding: 0 0 0 1.4rem; max-height: 9rem; overflow-y: auto; color: var(--muted); }
