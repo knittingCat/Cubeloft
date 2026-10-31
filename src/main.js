@@ -905,6 +905,7 @@ function toggleAnimBar(show = !animOpen()) {
     view.stopAnimation(false);
     setAnimMode(null);
   }
+  animPos = null;
   $('#animBar').hidden = !show;
   $('#animTools').hidden = !show; // the animation toolbar takes the place of the usual ones while it is open
   document.body.classList.toggle('animating-tools', show);
@@ -915,6 +916,37 @@ function toggleAnimBar(show = !animOpen()) {
     setAnimMode(null, 'Start as a person to see it through their eyes, or pick Walk, Turn or Door and click what should move. Steps play one after another.');
   }
   refreshHover();
+}
+
+// Back and Forward step through the animation: each stop is "this many steps are done". Steps that start at the same time as
+// the one before are one stop. animPos is the stop you are at (null = after all the steps, or no stop chosen).
+let animPos = null;
+function animStops() {
+  const steps = world.animation;
+  return [...steps.keys()].filter((i) => i === 0 || !steps[i].together).concat(steps.length);
+}
+function animStepBy(dir) {
+  const steps = world.animation;
+  if (view.animating) return;
+  if (!steps.length) return toast('Add some steps first: Walk, Turn, Door or Switch.');
+  const stops = animStops();
+  const at = animPos != null && view.held ? animPos : steps.length;
+  const target = dir < 0 ? stops.filter((s) => s < at).pop() : stops.find((s) => s > at);
+  if (target === undefined) return toast(dir < 0 ? 'That is the start.' : 'That is the last step.');
+  const label = () => (target === 0 ? 'Before the first step.' : `After ${target} of ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
+  if (dir < 0) {
+    if (!view.showAnimationAt(steps, target)) return toast('Nothing to show: the people or doors in the steps are gone.');
+    animPos = target;
+    setAnimMode(null, label());
+    return;
+  }
+  // forward plays the steps up to the next stop, so you see them happen
+  const arrived = (finished) => {
+    if (!finished) return;
+    animPos = target;
+    setAnimMode(null, label());
+  };
+  if (!playAnimation(at, true, arrived, 'Playing…', true, steps.slice(0, target)) && view.showAnimationAt(steps, target)) arrived(true);
 }
 
 function addAnimStep(step) {
@@ -976,11 +1008,13 @@ function animClick(e, button) {
 
 // from: index of the step to start at (a just-added step plays by itself, from where the steps before it end)
 // onDone: called when it ends or is stopped. Returns whether it started.
-function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing…', hold = false) {
+// steps: what to play (all of them, unless Forward plays just up to the next stopping point)
+function playAnimation(from = 0, quiet = false, onDone = null, hint = 'Playing…', hold = false, steps = world.animation) {
   if (!world.animation.length) return toast('Add some steps first: Walk, Turn, Door or Switch.'), false;
+  animPos = null; // playing on its own: Back and Forward start again from the end
   const lookText = $('#lookHelp').textContent; // the person bar's usual key help, put back when the animation ends
   const started = view.playAnimation(
-    world.animation,
+    steps,
     () => {
       $('#lookHelp').textContent = lookText;
       $('#animPlay').hidden = false;
@@ -1651,6 +1685,8 @@ function wireUI() {
   $('#lightRemove').onclick = () => lightSel != null && world.removeLight(lightSel);
   $('#lightDone').onclick = () => setTool('build');
   $('#animWait').onclick = () => !view.animating && addAnimStep({ type: 'wait', seconds: 1 });
+  $('#animBack').onclick = () => animStepBy(-1);
+  $('#animForward').onclick = () => animStepBy(1);
   $('#animPlay').onclick = () => playAnimation();
   $('#animRecord').onclick = recordAnimation;
   $('#animStop').onclick = () => view.stopAnimation(false);

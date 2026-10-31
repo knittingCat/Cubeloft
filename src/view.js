@@ -1499,6 +1499,23 @@ export class DioramaView {
     return true;
   }
 
+  // Freeze the scene as it is when the first `count` steps are done (0 = before any step, steps.length = after all of them).
+  // It stays like that, like a held run, until the next play, Stop, or edit. Returns false if there is nothing to show.
+  showAnimationAt(steps, count) {
+    if (this.anim) this.stopAnimation(false);
+    this.clearHold();
+    const plan = this.planAnimation(steps);
+    if (!plan) return false;
+    if (this.looking && this.looking.pose !== 'standing') plan.people.delete(this.looking.id);
+    const t = count >= steps.length ? plan.total : plan.stepStart[count] ?? 0;
+    for (const [id, rec] of plan.people) this.poseAnimatedPerson(id, rec, t);
+    for (const [id, rec] of plan.doors) this.poseAnimatedDoor(id, rec, t);
+    this.poseAnimatedLights(plan, t);
+    this.held = plan;
+    this.dirty = true;
+    return true;
+  }
+
   updateAnimation() {
     const { plan, t0 } = this.anim;
     const t = (performance.now() - t0) / 1000;
