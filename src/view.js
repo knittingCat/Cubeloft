@@ -867,17 +867,19 @@ export class DioramaView {
         leg.add(shin);
         part = shin;
         lower = 0.3;
-        add(0.24, 0.54, 0.28, x, -0.1, 0, p.bottoms === 'pants' ? p.pants : p.skin); // reaches up to the top of the thigh, so the knee is filled in
+        add(0.24, 0.44, 0.28, x, 0, 0, p.bottoms === 'pants' ? p.pants : p.skin); // starts above the shoe, and reaches up to the top of the thigh, so the knee is filled in
         add(0.26, 0.1, 0.36, x, -0.1, 0.04, p.shoes);
         part = g;
         lower = 0;
         continue;
       }
-      if (p.bottoms === 'pants') add(0.24, 0.7, 0.28, x, 0, 0, p.pants);
+      // standing or walking: the leg stops where the shoe starts (0.1), so their bottom faces are not in the same place
+      const base = sitting ? 0 : 0.1;
+      if (p.bottoms === 'pants') add(0.24, 0.7 - base, 0.28, x, base, 0, p.pants);
       else if (p.bottoms === 'shorts') {
         add(0.24, 0.36, 0.28, x, 0.34, 0, p.pants);
-        add(0.24, 0.34, 0.28, x, 0, 0, p.skin);
-      } else add(0.24, 0.7, 0.28, x, 0, 0, p.skin);
+        add(0.24, 0.34 - base, 0.28, x, base, 0, p.skin);
+      } else add(0.24, 0.7 - base, 0.28, x, base, 0, p.skin);
       if (sitting) {
         part = g;
         lower = 0;
