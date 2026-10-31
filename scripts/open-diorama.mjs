@@ -4,18 +4,30 @@
 // Options: --site URL (default https://cubeloft.onrender.com), --print (show the link instead of opening it).
 // The diorama opens view-only, as a shared link (#s=...), so nothing is saved or changed.
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
 const value = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : null);
 const site = (value('--site') || 'https://cubeloft.onrender.com').replace(/\/$/, '');
 const id = args.find((a, i) => /^\d+$/.test(a) && args[i - 1] !== '--site');
-const { CUBELOFT_USER: username, CUBELOFT_PASSWORD: password } = process.env;
-
-if (!id || !username || !password) {
-  console.error('Usage: CUBELOFT_USER=<admin> CUBELOFT_PASSWORD=<password> node scripts/open-diorama.mjs <id> [--site URL] [--print]');
+if (!id) {
+  console.error('Usage: node scripts/open-diorama.mjs <id> [--site URL] [--print]\nIt asks for an admin username and password (or reads CUBELOFT_USER and CUBELOFT_PASSWORD).');
   process.exit(1);
 }
+
+// Ask for whatever is not in the environment; the password is not shown as you type.
+async function ask(question, hidden = false) {
+  const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
+  if (hidden) rl._writeToOutput = (s) => rl.output.write(s.startsWith(question) ? s : '');
+  const answer = await new Promise((resolve) => rl.question(question, resolve));
+  rl.close();
+  if (hidden) process.stderr.write('\n');
+  return answer.trim();
+}
+const username = process.env.CUBELOFT_USER || (await ask('Admin username: '));
+const password = process.env.CUBELOFT_PASSWORD || (await ask('Password: ', true));
+if (!username || !password) process.exit(1);
 
 const headers = { 'content-type': 'application/json', 'x-requested-with': 'blockscape' };
 const login = await fetch(`${site}/api/login`, { method: 'POST', headers, body: JSON.stringify({ username, password }) });
