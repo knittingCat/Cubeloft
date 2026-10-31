@@ -969,6 +969,15 @@ function animClick(e, button) {
   if (view.animating) return;
   const { ray, hit } = currentHit(e);
   if (button === 2 || e.button === 2) return setAnimMode(null, animMode ? 'Cancelled.' : '');
+  if (!animMode) {
+    // no step chosen: switches and doors can still be clicked to flip / open / close them, as when building
+    const lightId = lightUnderPointer(ray, hit);
+    const l = lightId != null ? world.getLight(lightId) : null;
+    if (l && l.kind === 'switch') return flipSwitch(l);
+    const doorId = view.doorAt(ray);
+    if (doorId != null) world.changeDoor(doorId, { open: !world.getDoor(doorId).open });
+    return;
+  }
   if (animMode === 'walkPerson') {
     const id = view.personAt(ray) ?? personAtCells(hit);
     if (id == null) return toast('Click a person.');
