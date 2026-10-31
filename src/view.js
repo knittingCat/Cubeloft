@@ -1131,8 +1131,9 @@ export class DioramaView {
     // with a leaf plate on each face
     const hingeMat = this.mat('#4b4b50');
     for (const y of [0.4, 1.6]) {
-      const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, T + 0.06), hingeMat);
-      barrel.position.set(-0.5 + 0.04, y, 0);
+      // (the barrel sticks out past the door's edge and past each leaf, so none of its faces share a plane with the door or a leaf)
+      const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, T + 0.1), hingeMat);
+      barrel.position.set(-0.5 + 0.02, y, 0);
       barrel.castShadow = true;
       panel.add(barrel);
       for (const side of [1, -1]) {
