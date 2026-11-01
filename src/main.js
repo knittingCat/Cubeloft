@@ -364,7 +364,7 @@ function scheduleSave(remote = false) {
 // ---------- autosave to your account ----------
 // Remember which saved diorama this browser was editing, so autosave keeps working after a refresh.
 function rememberCloud() {
-  store.set('cloud', cloud && cloud.mine ? JSON.stringify({ id: cloud.id, title: cloud.title, owner: cloud.owner, isOwner: cloud.isOwner, visibility: cloud.visibility, classId: cloud.classId, classEdit: cloud.classEdit, shareEdit: !!cloud.shareEdit, hasCode: !!cloud.hasCode }) : '');
+  store.set('cloud', cloud && cloud.mine ? JSON.stringify({ id: cloud.id, title: cloud.title, owner: cloud.owner, isOwner: cloud.isOwner, visibility: cloud.visibility, classId: cloud.classId, classEdit: cloud.classEdit, shareEdit: !!cloud.shareEdit }) : '');
 }
 
 function setCloudState(text) {

@@ -134,10 +134,6 @@ export async function initAccount(ctx) {
             <select name="classId">${classes.map((c) => `<option value="${c.id}" ${inClass && cloud.classId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
           <label class="inline"><input type="checkbox" name="classEdit" ${inClass && cloud.classEdit ? 'checked' : ''}> Let people in that class edit it too (only if you chose a class above)</label>` : ''}
         </fieldset>
-        <label>Optional: a code people must enter to open this diorama
-          <input name="code" maxlength="40" autocomplete="off" placeholder="${updating && cloud.hasCode ? 'Leave blank to keep the current code' : 'Leave blank for no code'}">
-        </label>
-        ${updating && cloud.hasCode ? '<label class="inline"><input type="checkbox" name="clearCode"> Remove the code</label>' : ''}
         <p class="error" id="saveError" hidden></p>
         <div class="row">
           <button type="button" data-act="close">Cancel</button>
@@ -150,7 +146,6 @@ export async function initAccount(ctx) {
       e.preventDefault();
       const f = new FormData(e.target);
       const asNew = e.submitter && e.submitter.value === 'new';
-      const code = (f.get('code') || '').trim();
       const payload = {
         id: updating && !asNew ? cloud.id : undefined,
         title: f.get('title'),
@@ -161,13 +156,11 @@ export async function initAccount(ctx) {
         classId: f.get('vis') === 'class' ? Number(f.get('classId')) : undefined,
         classEdit: f.get('vis') === 'class' && f.get('classEdit') === 'on',
       };
-      if (code) payload.code = code;
-      else if (f.get('clearCode')) payload.code = '';
       for (const b of el.querySelectorAll('button')) b.disabled = true;
       try {
         const res = await api('POST', '/api/dioramas', payload);
         world.meta.title = payload.title;
-        ctx.setCloud({ id: res.id, title: payload.title, mine: true, isOwner: true, visibility: payload.visibility, classId: payload.classId, classEdit: payload.classEdit, shareEdit: updating && !asNew && !!cloud.shareEdit, hasCode: !!code || (updating && cloud.hasCode && !f.get('clearCode')) });
+        ctx.setCloud({ id: res.id, title: payload.title, mine: true, isOwner: true, visibility: payload.visibility, classId: payload.classId, classEdit: payload.classEdit, shareEdit: updating && !asNew && !!cloud.shareEdit });
         ctx.toast(payload.visibility === 'gallery' ? 'Saved — it is in your gallery.' : payload.visibility === 'class' ? 'Saved — shared with your class.' : 'Saved to your account.');
         close();
       } catch (err) {
@@ -216,7 +209,6 @@ export async function initAccount(ctx) {
       close();
     } catch (err) {
       if (err.data && err.data.locked === 'gallery') return unlockView({ kind: 'gallery', id: err.data.ownerId, owner: err.data.owner, then: () => openDiorama(id) });
-      if (err.data && err.data.locked === 'diorama') return unlockView({ kind: 'diorama', id: err.data.id, owner: err.data.owner, then: () => openDiorama(id) });
       ctx.toast(err.message);
     }
   }
@@ -224,7 +216,7 @@ export async function initAccount(ctx) {
   function unlockView({ kind, id, owner, then }) {
     const el = open(`
       <h2>Code needed</h2>
-      <p>${kind === 'gallery' ? `${esc(owner)}'s gallery` : `A diorama by ${esc(owner)}`} needs a code. Ask ${esc(owner)} for it.</p>
+      <p>${esc(owner)}'s gallery needs a code. Ask ${esc(owner)} for it.</p>
       <form id="unlockForm">
         <label>Code <input name="code" autocomplete="off" maxlength="40" required></label>
         <p class="error" id="unlockError" hidden></p>
@@ -251,8 +243,8 @@ export async function initAccount(ctx) {
             (d) => `<div class="dcard">
               <button class="dthumb" data-open="${d.id}" title="Open">${d.thumb ? `<img src="${esc(d.thumb)}" alt="">` : `<span>${d.locked ? 'Locked' : 'No picture'}</span>`}</button>
               <div class="dtitle">${d.locked ? '[Locked] ' : ''}${esc(d.title)}</div>
-              <div class="dmeta">${mine ? (d.visibility === 'gallery' ? 'In my gallery' : d.visibility === 'class' ? 'Class: ' + esc(d.className || '') : 'Only me') + (d.hasCode ? ' · needs a code' : '') + (d.sharedWith ? ` · shared with ${d.sharedWith}` : '') : `by <button class="link" data-user="${esc(d.owner)}">${esc(d.owner)}</button>${d.canEdit ? ' · you can edit' : ''}`}</div>
-              ${mine ? `<div class="dactions"><button data-open="${d.id}">Open</button><button data-share="${d.id}" data-title="${esc(d.title)}">Share</button>${d.visibility === 'gallery' && !d.hasCode ? `<button data-link="${d.id}">Copy link</button>` : ''}<button data-del="${d.id}">Delete</button></div>` : takedown ? `<div class="dactions"><button data-takedown="${d.id}">Take down</button></div>` : ''}
+              <div class="dmeta">${mine ? (d.visibility === 'gallery' ? 'In my gallery' : d.visibility === 'class' ? 'Class: ' + esc(d.className || '') : 'Only me') +(d.sharedWith ? ` · shared with ${d.sharedWith}` : '') : `by <button class="link" data-user="${esc(d.owner)}">${esc(d.owner)}</button>${d.canEdit ? ' · you can edit' : ''}`}</div>
+              ${mine ? `<div class="dactions"><button data-open="${d.id}">Open</button><button data-share="${d.id}" data-title="${esc(d.title)}">Share</button>${d.visibility === 'gallery' ? `<button data-link="${d.id}">Copy link</button>` : ''}<button data-del="${d.id}">Delete</button></div>` : takedown ? `<div class="dactions"><button data-takedown="${d.id}">Take down</button></div>` : ''}
             </div>`,
           )
           .join('')}</div>`
@@ -345,7 +337,7 @@ export async function initAccount(ctx) {
         (b.onclick = async () => {
           const url = `${location.origin}${location.pathname}#d=${b.dataset.link}`;
           try {
-            await api('GET', `/api/dioramas/${b.dataset.link}/public`); // only everyone-gallery dioramas without a code can be linked
+            await api('GET', `/api/dioramas/${b.dataset.link}/public`); // only dioramas in everyone's gallery (and not behind a gallery code) can be linked
           } catch {
             ctx.toast('This diorama is not public, so it has no link.');
             return;

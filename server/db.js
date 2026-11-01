@@ -119,6 +119,11 @@ export async function initDb() {
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS user_unread BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS admin_unread BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE ${T.feedback} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    -- codes on single dioramas were removed (only the gallery code is left): a diorama that had one is made private, so taking
+    -- the code away does not open it to everyone
+    UPDATE ${T.dioramas} SET visibility = 'private' WHERE code_hash IS NOT NULL AND visibility = 'gallery';
+    UPDATE ${T.dioramas} SET code_hash = NULL WHERE code_hash IS NOT NULL;
+    DELETE FROM ${T.unlocks} WHERE kind = 'diorama';
     -- the owner's own gallery code, encrypted (the hash above is what people's codes are checked against; this copy lets the owner read it back)
     ALTER TABLE ${T.users} ADD COLUMN IF NOT EXISTS gallery_code_enc TEXT;
     -- sent without being signed in: nobody can read the replies, so the admins just read it and close it

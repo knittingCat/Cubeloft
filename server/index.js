@@ -484,11 +484,8 @@ export function createApp() {
         classEdit = req.body.classEdit === true;
       }
     }
-    const code = req.body.code;
-    if (code != null && code !== '' && (typeof code !== 'string' || code.length < 3 || code.length > 40)) return bad(res, 400, 'A code is 3–40 characters.');
-
     if (id != null && collaborator) {
-      // classmates change the picture only: sharing and codes stay with the owner
+      // classmates change the picture only: sharing stays with the owner
       await query(`UPDATE ${T.dioramas} SET title = $1, data = $2, thumb = $3, updated_at = NOW() WHERE id = $4`, [title, data, thumb || null, id]);
       return res.json({ id });
     }
@@ -499,33 +496,26 @@ export function createApp() {
       sets.push(`class_id = $${params.length}`);
       params.push(classEdit);
       sets.push(`class_edit = $${params.length}`);
-      if (code === '' || code === null) sets.push('code_hash = NULL');
-      else if (code !== undefined) {
-        params.push(await hashSecret(code));
-        sets.push(`code_hash = $${params.length}`);
-      }
       params.push(id);
       await query(`UPDATE ${T.dioramas} SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
       if (live) live.recheck(id);
-      if (code !== undefined) await query(`DELETE FROM ${T.unlocks} WHERE kind = 'diorama' AND target_id = $1`, [id]);
       return res.json({ id });
     }
     const { rows: cnt } = await query(`SELECT COUNT(*)::int AS n FROM ${T.dioramas} WHERE owner_id = $1`, [req.user.id]);
     if (cnt[0].n >= MAX_DIORAMAS_PER_USER) return bad(res, 400, `You can keep up to ${MAX_DIORAMAS_PER_USER} dioramas. Delete one first.`);
-    const codeHash = code ? await hashSecret(code) : null;
     const { rows } = await query(
-      `INSERT INTO ${T.dioramas} (owner_id, title, data, thumb, visibility, code_hash, class_id, class_edit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [req.user.id, title, data, thumb || null, visibility, codeHash, classId, classEdit],
+      `INSERT INTO ${T.dioramas} (owner_id, title, data, thumb, visibility, class_id, class_edit) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [req.user.id, title, data, thumb || null, visibility, classId, classEdit],
     );
     res.json({ id: rows[0].id });
   }));
 
   app.get('/api/dioramas/mine', needUser, wrap(async (req, res) => {
     const { rows } = await query(
-      `SELECT d.id, d.title, d.thumb, d.visibility, d.class_id, d.class_edit, c.name AS class_name, (d.code_hash IS NOT NULL) AS has_code, d.updated_at, (SELECT COUNT(*)::int FROM ${T.shares} s WHERE s.diorama_id = d.id) AS shared_with FROM ${T.dioramas} d LEFT JOIN ${T.classes} c ON c.id = d.class_id WHERE d.owner_id = $1 ORDER BY d.updated_at DESC`,
+      `SELECT d.id, d.title, d.thumb, d.visibility, d.class_id, d.class_edit, c.name AS class_name, d.updated_at, (SELECT COUNT(*)::int FROM ${T.shares} s WHERE s.diorama_id = d.id) AS shared_with FROM ${T.dioramas} d LEFT JOIN ${T.classes} c ON c.id = d.class_id WHERE d.owner_id = $1 ORDER BY d.updated_at DESC`,
       [req.user.id],
     );
-    res.json({ dioramas: rows.map((r) => ({ id: r.id, title: r.title, thumb: r.thumb, visibility: r.visibility, classId: r.class_id, classEdit: r.class_edit, className: r.class_name, hasCode: r.has_code, sharedWith: r.shared_with, updatedAt: r.updated_at })) });
+    res.json({ dioramas: rows.map((r) => ({ id: r.id, title: r.title, thumb: r.thumb, visibility: r.visibility, classId: r.class_id, classEdit: r.class_edit, className: r.class_name, sharedWith: r.shared_with, updatedAt: r.updated_at })) });
   }));
 
   // Dioramas other people shared with this person by name.
@@ -559,11 +549,11 @@ export function createApp() {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return bad(res, 404, 'Diorama not found.');
     const { rows } = await query(
-      `SELECT d.id, d.title, d.data, d.owner_id, d.visibility, d.code_hash, u.username, u.gallery_code_hash AS gallery_hash FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id WHERE d.id = $1`,
+      `SELECT d.id, d.title, d.data, d.owner_id, d.visibility, u.username, u.gallery_code_hash AS gallery_hash FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id WHERE d.id = $1`,
       [id],
     );
     const d = rows[0];
-    if (!d || d.visibility !== 'gallery' || d.code_hash || d.gallery_hash) return bad(res, 404, 'That diorama is not shared with a link. Ask the owner to share it.');
+    if (!d || d.visibility !== 'gallery' || d.gallery_hash) return bad(res, 404, 'That diorama is not shared with a link. Ask the owner to share it.');
     res.json({ id: d.id, title: d.title, data: d.data, owner: d.username, visibility: d.visibility, mine: !!req.user && d.owner_id === req.user.id });
   }));
 
@@ -580,7 +570,6 @@ export function createApp() {
     if (!req.user) {
       if (d.visibility !== 'gallery') return bad(res, 404, 'Diorama not found.');
       if (d.gallery_hash && !tokenOpens(req, 'gallery', d.owner_id, d.gallery_hash)) return bad(res, 403, 'This gallery needs a code.', { locked: 'gallery', ownerId: d.owner_id, owner: d.username });
-      if (d.code_hash && !tokenOpens(req, 'diorama', d.id, d.code_hash)) return bad(res, 403, 'This diorama needs a code.', { locked: 'diorama', id: d.id, owner: d.username });
       return res.json({ id: d.id, title: d.title, data: d.data, owner: d.username, visibility: d.visibility, classId: null, classEdit: false, mine: false, isOwner: false, shareEdit: false });
     }
     const mine = d.owner_id === req.user.id;
@@ -596,7 +585,6 @@ export function createApp() {
     if (!mine && !req.user.is_admin && !reviewer && !classMember && !share) {
       if (d.visibility !== 'gallery') return bad(res, 404, 'Diorama not found.');
       if (d.gallery_hash && !(await unlocked(req.user.id, 'gallery', d.owner_id))) return bad(res, 403, 'This gallery needs a code.', { locked: 'gallery', ownerId: d.owner_id, owner: d.username });
-      if (d.code_hash && !(await unlocked(req.user.id, 'diorama', d.id))) return bad(res, 403, 'This diorama needs a code.', { locked: 'diorama', id: d.id, owner: d.username });
     }
     // classmates can edit when the owner switched that on; `mine` means "you can edit and autosave it"
     const editable = !mine && ((classMember && d.class_edit) || (share && share.can_edit));
@@ -674,10 +662,8 @@ export function createApp() {
   // --- codes ---
   app.post('/api/unlock', rateLimiter({ windowMs: 600e3, max: 20 }), wrap(async (req, res) => {
     const { kind, id, code } = req.body;
-    if (!['gallery', 'diorama'].includes(kind) || !Number.isInteger(id) || typeof code !== 'string') return bad(res, 400, 'Bad request.');
-    const { rows } = kind === 'gallery'
-      ? await query(`SELECT gallery_code_hash AS h FROM ${T.users} WHERE id = $1`, [id])
-      : await query(`SELECT code_hash AS h FROM ${T.dioramas} WHERE id = $1 AND visibility = 'gallery'`, [id]);
+    if (kind !== 'gallery' || !Number.isInteger(id) || typeof code !== 'string') return bad(res, 400, 'Bad request.');
+    const { rows } = await query(`SELECT gallery_code_hash AS h FROM ${T.users} WHERE id = $1`, [id]);
     if (!rows[0]) return bad(res, 404, 'Not found.');
     if (rows[0].h && !(await verifySecret(code, rows[0].h))) return bad(res, 403, 'That code is not right.');
     if (!req.user) return res.json({ ok: true, token: rows[0].h ? unlockToken(kind, id, rows[0].h) : null }); // signed out: the browser keeps the token
@@ -708,12 +694,12 @@ export function createApp() {
     const open = { has: (key) => openSet.has(key) }; // signed out: checked against the tokens the browser sent, see isOpen below
     const isOpen = (kind, id, hash) => (req.user ? open.has(`${kind}:${id}`) : tokenOpens(req, kind, id, hash));
     const recent = await query(
-      `SELECT d.id, d.title, d.thumb, d.updated_at, d.owner_id, u.username, (d.code_hash IS NOT NULL) AS dcode, (u.gallery_code_hash IS NOT NULL) AS gcode, d.code_hash AS dh, u.gallery_code_hash AS gh
+      `SELECT d.id, d.title, d.thumb, d.updated_at, d.owner_id, u.username, (u.gallery_code_hash IS NOT NULL) AS gcode, u.gallery_code_hash AS gh
        FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id WHERE d.visibility = 'gallery' ORDER BY d.updated_at DESC LIMIT 24`,
     );
     res.json({
       members: members.rows.map((m) => ({ username: m.username, count: m.n, locked: m.has_code && m.id !== me && !isOpen('gallery', m.id, m.gh) })),
-      recent: recent.rows.map((r) => card(r, r.owner_id !== me && ((r.gcode && !isOpen('gallery', r.owner_id, r.gh)) || (r.dcode && !isOpen('diorama', r.id, r.dh))))),
+      recent: recent.rows.map((r) => card(r, r.owner_id !== me && r.gcode && !isOpen('gallery', r.owner_id, r.gh))),
     });
   }));
 
@@ -724,13 +710,11 @@ export function createApp() {
     const own = u[0].id === me || (req.user && req.user.is_admin);
     if (u[0].has_code && !own && !(await isUnlocked(req, 'gallery', u[0].id, u[0].gh))) return res.json({ owner: u[0].username, ownerId: u[0].id, locked: 'gallery' });
     const { rows } = await query(
-      `SELECT d.id, d.title, d.thumb, d.updated_at, (d.code_hash IS NOT NULL) AS dcode, d.code_hash AS dh, u.username FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id
+      `SELECT d.id, d.title, d.thumb, d.updated_at, u.username FROM ${T.dioramas} d JOIN ${T.users} u ON u.id = d.owner_id
        WHERE d.owner_id = $1 AND d.visibility = 'gallery' ORDER BY d.updated_at DESC`,
       [u[0].id],
     );
-    const unlockedRows = req.user ? await query(`SELECT target_id FROM ${T.unlocks} WHERE user_id = $1 AND kind = 'diorama'`, [me]) : { rows: [] };
-    const open = new Set(unlockedRows.rows.map((r) => r.target_id));
-    res.json({ owner: u[0].username, ownerId: u[0].id, locked: null, dioramas: rows.map((r) => card(r, r.dcode && !own && !(req.user ? open.has(r.id) : tokenOpens(req, 'diorama', r.id, r.dh)))) });
+    res.json({ owner: u[0].username, ownerId: u[0].id, locked: null, dioramas: rows.map((r) => card(r, false)) });
   }));
 
   // Anyone can report, signed in or not. People who are not signed in are limited more strictly.

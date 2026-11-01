@@ -209,20 +209,14 @@ try {
     assert.equal((await ben.call('GET', `/api/dioramas/${galleryId}`)).status, 200);
   });
 
-  await test('diorama code works on one diorama only', async () => {
-    const coded = await ann.call('POST', '/api/dioramas', { title: 'Secret door', data: DATA, visibility: 'gallery', code: 'knock' });
-    const id = coded.json.id;
-    const r = await ben.call('GET', `/api/dioramas/${id}`);
-    assert.equal(r.status, 403);
-    assert.equal(r.json.locked, 'diorama');
-    const list = await ben.call('GET', '/api/gallery/ann');
-    const item = list.json.dioramas.find((d) => d.id === id);
-    assert.equal(item.locked, true);
-    assert.equal(list.json.dioramas.find((d) => d.id === galleryId).locked, false);
-    assert.equal((await ben.call('POST', '/api/unlock', { kind: 'diorama', id, code: 'bad' })).status, 403);
-    assert.equal((await ben.call('POST', '/api/unlock', { kind: 'diorama', id, code: 'knock' })).status, 200);
+  await test('there are no codes on single dioramas (only on a whole gallery)', async () => {
+    const saved = await ann.call('POST', '/api/dioramas', { title: 'No door code', data: DATA, visibility: 'gallery', code: 'knock' }); // a code sent anyway is ignored
+    const id = saved.json.id;
     assert.equal((await ben.call('GET', `/api/dioramas/${id}`)).status, 200);
-    assert.equal((await ann.call('POST', '/api/dioramas', { id, title: 'Secret door', data: DATA, visibility: 'gallery', code: '' })).status, 200);
+    const list = await ben.call('GET', '/api/gallery/ann');
+    assert.equal(list.json.dioramas.find((d) => d.id === id).locked, false);
+    assert.equal((await ben.call('POST', '/api/unlock', { kind: 'diorama', id, code: 'knock' })).status, 400);
+    assert.equal((await ann.call('GET', '/api/dioramas/mine')).json.dioramas.find((d) => d.id === id).hasCode, undefined);
   });
 
   await test('reports', async () => {
@@ -328,7 +322,7 @@ try {
     assert.deepEqual(left.rows, [{ status: 'open', assigned_to: null }]); // waiting for Claude in the database
   });
 
-  await test('a saved gallery diorama opens by link without signing in; private and code-protected ones do not', async () => {
+  await test('a saved gallery diorama opens by link without signing in; private ones do not', async () => {
     const anon = new Client();
     const pub = await ann.call('POST', '/api/dioramas', { title: 'Link me', data: DATA, visibility: 'gallery' });
     const ok = await anon.call('GET', `/api/dioramas/${pub.json.id}/public`);
@@ -338,8 +332,6 @@ try {
     assert.equal((await ann.call('GET', `/api/dioramas/${pub.json.id}/public`)).json.mine, true);
     const priv = await ann.call('POST', '/api/dioramas', { title: 'Hidden', data: DATA, visibility: 'private' });
     assert.equal((await anon.call('GET', `/api/dioramas/${priv.json.id}/public`)).status, 404);
-    const coded = await ann.call('POST', '/api/dioramas', { title: 'Coded', data: DATA, visibility: 'gallery', code: 'secret1' });
-    assert.equal((await anon.call('GET', `/api/dioramas/${coded.json.id}/public`)).status, 404);
     assert.equal((await anon.call('GET', '/api/dioramas/99999/public')).status, 404);
     assert.equal((await anon.call('GET', '/api/dioramas/abc/public')).status, 404);
   });
