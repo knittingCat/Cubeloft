@@ -33,7 +33,6 @@ const SWITCH_TIME = 0.4; // seconds a switch step takes in the animation
 const HANG_REACH = 7; // a lamp hanging from a ceiling lights the floor strongly when it is this many blocks below, or closer
 const LAMP_LEVEL = 14; // the light level of the cell a lit lamp hangs in (a glowing block gives its level minus one next to it)
 const TURN_RATE = 4; // 30 degree steps per second while a turn key is held in a person's view
-const PULL_DIST = 2; // cells a person walks away while pulling a door shut behind them
 const smooth = (u) => u * u * (3 - 2 * u);
 // A walk of total time T over L cells: speed up quickly, keep pace, slow down. Returns the distance covered and the speed at time tau.
 function walkAlong(tau, T, L) {
@@ -1418,24 +1417,6 @@ export class DioramaView {
       end = Math.max(end, start + dur);
       total = Math.max(total, start + dur);
     }
-    // Someone who sets off from a doorway just as its door closes pulls it shut behind them: the door follows their walk
-    // (it is shut once they are PULL_DIST cells away).
-    for (const [id, rec] of doors) {
-      const d = world.getDoor(id);
-      for (const ev of rec.events) {
-        if (ev.to !== 0) continue;
-        for (const prec of people.values()) {
-          const seg = prec.segs.find((s) => s.walkT > 0 && Math.abs(s.t0 - ev.t0) < 1e-6 && Math.abs(s.from.x - (d.x + 0.5)) < 0.75 && Math.abs(s.from.z - (d.z + 0.5)) < 0.75 && Math.abs(s.from.y - d.y) < 1.5);
-          if (!seg) continue;
-          const D = Math.min(PULL_DIST, seg.L);
-          let t = seg.t0;
-          while (t < seg.t1 && walkAlong(t - seg.t0, seg.walkT, seg.L).s < D) t += 0.02;
-          ev.pull = { seg, D };
-          ev.t1 = t;
-          break;
-        }
-      }
-    }
     return total > 0 ? { people, doors, lights, total, stepStart } : null;
   }
 
@@ -1503,10 +1484,7 @@ export class DioramaView {
     for (const ev of rec.events) {
       if (t >= ev.t1) v = ev.to;
       else {
-        if (ev.pull) {
-          const p = Math.min(1, walkAlong(t - ev.pull.seg.t0, ev.pull.seg.walkT, ev.pull.seg.L).s / ev.pull.D);
-          v = ev.from + (ev.to - ev.from) * p; // pulled along at the pace of the walk, so it eases only where their walk does
-        } else if (t > ev.t0) v = ev.from + (ev.to - ev.from) * smooth((t - ev.t0) / DOOR_TIME);
+        if (t > ev.t0) v = ev.from + (ev.to - ev.from) * smooth((t - ev.t0) / DOOR_TIME);
         break;
       }
     }
