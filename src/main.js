@@ -1140,7 +1140,7 @@ function recordAnimation() {
   rec.onstop = () => {
     if (!chunks.length) return;
     const mime = rec.mimeType || type || 'video/webm';
-    download(new Blob(chunks, { type: mime }), `${slug(world.meta.title)}.${mime.includes('mp4') ? 'mp4' : 'webm'}`);
+    download(new Blob(chunks, { type: mime }), `animation.${mime.includes('mp4') ? 'mp4' : 'webm'}`);
     toast('Video saved to your Downloads folder.');
   };
   rec.start(250);
