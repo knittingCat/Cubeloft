@@ -1133,7 +1133,7 @@ function recordAnimation() {
   if (view.animating) return;
   if (typeof MediaRecorder === 'undefined' || !view.canvas.captureStream) return toast('This browser cannot record video. Try Chrome, Edge or Firefox.');
   if (!world.animation.length) return toast('Add some steps first: Walk, Turn, Door or Switch.');
-  const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find((t) => MediaRecorder.isTypeSupported(t));
+  const type = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t));
   const chunks = [];
   const rec = new MediaRecorder(view.canvas.captureStream(30), { ...(type ? { mimeType: type } : {}), videoBitsPerSecond: 8_000_000 });
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
