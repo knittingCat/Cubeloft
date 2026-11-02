@@ -11,6 +11,7 @@ export async function initAccount(ctx) {
   const accountBtn = $('#accountBtn');
   const galleryBtn = $('#galleryBtn');
   const reportsBtn = $('#reportsBtn');
+  const adminBtn = $('#adminBtn');
   const feedbackBtn = $('#feedbackBtn');
 
   if (!(await accountsAvailable())) return; // plain static copy: keep the buttons hidden
@@ -22,13 +23,21 @@ export async function initAccount(ctx) {
     // The Reports button always shows for admins, and for anyone picked to look at a report while one is waiting.
     // The red circle with the count only appears while something is waiting.
     const waiting = user ? user.pendingReports || 0 : 0;
-    reportsBtn.hidden = !(user && (user.isAdmin || waiting > 0));
+    // Admins (and Claude's account) get one Admin button holding Reports and Feedback instead of the two separate ones.
+    const staff = !!(user && (user.isAdmin || user.feedbackReader));
+    const unread = user ? user.feedbackUnread || 0 : 0;
+    adminBtn.hidden = !staff;
+    const adminBadge = $('.count', adminBtn);
+    adminBadge.hidden = waiting + unread === 0;
+    adminBadge.textContent = waiting + unread;
+    adminBtn.title = waiting + unread ? `Admin: ${waiting} report${waiting === 1 ? '' : 's'} waiting, ${unread} feedback conversation${unread === 1 ? '' : 's'} with something new` : 'Admin: reports and feedback';
+    reportsBtn.hidden = staff || !(user && waiting > 0);
     const badge = $('.count', reportsBtn);
     badge.hidden = waiting === 0;
     badge.textContent = waiting;
     reportsBtn.title = waiting ? `${waiting} report${waiting > 1 ? 's' : ''} waiting for review` : 'Reports waiting for review';
     // the chat button shows how many conversations have something new to read
-    const unread = user ? user.feedbackUnread || 0 : 0;
+    feedbackBtn.hidden = staff;
     const fbBadge = $('.count', feedbackBtn);
     fbBadge.hidden = unread === 0;
     fbBadge.textContent = unread;
@@ -571,6 +580,19 @@ export async function initAccount(ctx) {
     }
   }
 
+  // ---------- admin: one toolbar button instead of Reports and Feedback ----------
+  function adminView() {
+    const waiting = user.pendingReports || 0;
+    const unread = user.feedbackUnread || 0;
+    const el = open(`<h2>Admin</h2>
+      <div class="row"><button type="button" class="primary" data-act="reports">Reports${waiting ? ` (${waiting} waiting)` : ''}</button></div>
+      <div class="row"><button type="button" class="primary" data-act="feedback">Feedback${unread ? ` (${unread} new)` : ''}</button></div>
+      <div class="row"><button type="button" data-act="close">Close</button></div>`);
+    $('[data-act=reports]', el).onclick = reportsView;
+    $('[data-act=feedback]', el).onclick = feedbackEntry;
+    $('[data-act=close]', el).onclick = close;
+  }
+
   // ---------- reviewing reports ----------
   async function reportsView() {
     try {
@@ -809,6 +831,7 @@ export async function initAccount(ctx) {
 
   // ---------- toolbar ----------
   reportsBtn.onclick = reportsView;
+  adminBtn.onclick = adminView;
   accountBtn.onclick = () => (user ? mineView() : authView());
   feedbackBtn.onclick = () => (user ? feedbackEntry() : feedbackView());
   galleryBtn.onclick = galleryView;

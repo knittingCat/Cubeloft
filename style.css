@@ -224,9 +224,10 @@ body.animating-tools #top > :not(.brand):not(#animTools) { display: none; }
 .threadlist button { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; white-space: normal; text-align: left; width: 100%; }
 .threadlist button.unread { border-color: var(--accent); }
 .threadlist .meta { color: var(--muted); font-size: .78rem; }
-#feedbackBtn, #reportsBtn { position: relative; }
+#feedbackBtn, #reportsBtn, #adminBtn { position: relative; }
 #feedbackBtn .count,
-#reportsBtn .count { position: absolute; top: -6px; left: -6px; width: 1.15rem; height: 1.15rem; padding: 0; min-width: 0; line-height: 1.15rem; font-weight: 700; box-shadow: 0 0 0 2px #1a1d2b; }
+#reportsBtn .count,
+#adminBtn .count { position: absolute; top: -6px; left: -6px; width: 1.15rem; height: 1.15rem; padding: 0; min-width: 0; line-height: 1.15rem; font-weight: 700; box-shadow: 0 0 0 2px #1a1d2b; }
 
 /* the hidden attribute must win over the display rules above (it was not hiding toolbar buttons) */
 [hidden] { display: none !important; }

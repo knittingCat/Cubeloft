@@ -61,6 +61,7 @@
       <button aria-label="Account" id="accountBtn" hidden title="Sign in or see your dioramas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span></span></button>
       <button aria-label="Gallery" id="galleryBtn" hidden title="Look at dioramas other people shared"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
       <button aria-label="Feedback" id="feedbackBtn" hidden title="Request a feature or report an error (one conversation at a time)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg><span class="count" hidden></span></button>
+      <button aria-label="Admin" id="adminBtn" hidden title="Admin: reports and feedback"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.2 8.2-8 9.5C7.2 20.2 4 16.5 4 12V6z"/></svg><span class="count" hidden></span></button>
       <button aria-label="Reports" id="reportsBtn" hidden title="Reports waiting for review"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg><span class="count" hidden></span></button>
     </div>
     <div class="group">
@@ -194,7 +195,7 @@
     <form method="dialog">
       <h2>How to build</h2>
       <ul class="help">
-        <li><b>The toolbar uses icons:</b> hold the pointer over one to see its name. In order: Build, Erase, Select, Box, Pick, Sign, Person, Door, Copy, Paste, Mirror, Symmetry, Undo, Redo, Clear, Day, Sunset, Night, Account, Gallery, Reports (admins, or anyone picked to review one; a red number shows how many are waiting), New, Save, Picture, Help.</li>
+        <li><b>The toolbar uses icons:</b> hold the pointer over one to see its name. In order: Build, Erase, Select, Box, Pick, Sign, Person, Door, Copy, Paste, Mirror, Symmetry, Undo, Redo, Clear, Day, Sunset, Night, Account, Gallery, Admin (admins only: reports and feedback in one place; a red number shows how many are waiting; anyone picked to review a report gets a Reports button instead), New, Save, Picture, Help.</li>
         <li><b>Look around:</b> drag to rotate, scroll or pinch to zoom, right-drag (or two fingers) to move.</li>
         <li><b>Place a block:</b> pick one below, then click the ground or another block. You can also press <b>P</b> to place the selected block at the pointer.</li>
         <li><b>Start something new:</b> the New icon (page with a plus) offers starting scenes: a grass field, a grass field with a tree, a forest, a small island or an empty stand. Pick Small, Medium or Large, or choose Custom to type your own width and depth in blocks (12 to 96). Tick Keep it square to use one number for both.</li>
