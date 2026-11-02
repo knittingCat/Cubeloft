@@ -580,17 +580,65 @@ export async function initAccount(ctx) {
     }
   }
 
-  // ---------- admin: one toolbar button instead of Reports and Feedback ----------
+  // ---------- admin: one toolbar button, everything listed in sections ----------
   function adminView() {
-    const waiting = user.pendingReports || 0;
-    const unread = user.feedbackUnread || 0;
-    const el = open(`<h2>Admin</h2>
-      <div class="row"><button type="button" class="primary" data-act="reports">Reports${waiting ? ` (${waiting} waiting)` : ''}</button></div>
-      <div class="row"><button type="button" class="primary" data-act="feedback">Feedback${unread ? ` (${unread} new)` : ''}</button></div>
-      <div class="row"><button type="button" data-act="close">Close</button></div>`);
-    $('[data-act=reports]', el).onclick = reportsView;
-    $('[data-act=feedback]', el).onclick = feedbackEntry;
-    $('[data-act=close]', el).onclick = close;
+    open('<h2>Admin</h2><p class="hint">Loading…</p>', { wide: true });
+    Promise.all([api('GET', '/api/reports'), api('GET', '/api/feedback')])
+      .then(([{ reports }, { feedback }]) => {
+        refreshMe().catch(() => {});
+        const hasOpen = feedback.some((f) => f.status === 'open');
+        const el = open(
+          `<h2>Admin</h2>
+          <h3>Reports${reports.length ? ` (${reports.length} waiting)` : ''}</h3>
+          ${reports.length ? reports.map(reportRow).join('') : '<p class="hint">Nothing is waiting for you.</p>'}
+          <h3>Feedback</h3>
+          <div class="threadlist">${feedback.length ? feedback.map(feedbackRow).join('') : '<span class="hint">Nothing open.</span>'}</div>
+          ${user.feedbackReader || hasOpen ? '' : '<div class="row"><button type="button" data-act="newfeedback">Request a feature or report an error</button></div>'}
+          <div class="row"><button type="button" class="primary" data-act="close">Close</button></div>`,
+          { wide: true },
+        );
+        $('[data-act=close]', el).onclick = close;
+        const nf = $('[data-act=newfeedback]', el);
+        if (nf) nf.onclick = feedbackView;
+        wireReportRows(el, adminView);
+        el.querySelectorAll('[data-thread]').forEach((b) => (b.onclick = () => chatView(Number(b.dataset.thread))));
+      })
+      .catch((err) => {
+        ctx.toast(err.message);
+        close();
+      });
+  }
+
+  const reportWhen = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  const reportRow = (r) => `<div class="rrow" data-id="${r.id}">
+      <div><b>${esc(r.title)}</b> by ${esc(r.owner)}${r.visibility === 'gallery' ? '' : ' (hidden)'}</div>
+      <div class="reason">“${esc(r.reason)}”</div>
+      <div class="hint">${r.reporter ? 'Reported by ' + esc(r.reporter) + ' · ' : ''}${esc(reportWhen(r.createdAt))}${r.pickedForYou ? ' · you were picked to review this' : ''}</div>
+      <div class="dactions">
+        <button data-do="open" data-diorama="${r.dioramaId}">Open</button>
+        <button data-do="dismiss">Dismiss</button>
+        <button data-do="hide">Hide from gallery</button>
+        <button data-do="delete">Delete</button>
+      </div></div>`;
+  // The buttons on each report; `after` runs once an action went through.
+  function wireReportRows(el, after) {
+    el.querySelectorAll('.rrow').forEach((row) => {
+      const id = Number(row.dataset.id);
+      row.querySelectorAll('[data-do]').forEach((b) => {
+        b.onclick = async () => {
+          const what = b.dataset.do;
+          if (what === 'open') return openDiorama(Number(b.dataset.diorama));
+          if (what === 'delete' && !confirm('Delete this diorama for good? The owner will lose it.')) return;
+          try {
+            await api('POST', `/api/reports/${id}/action`, { action: what });
+            ctx.toast(what === 'dismiss' ? 'Report dismissed.' : what === 'hide' ? 'Hidden from the gallery.' : 'Diorama deleted.');
+            await after();
+          } catch (err) {
+            ctx.toast(err.message);
+          }
+        };
+      });
+    });
   }
 
   // ---------- reviewing reports ----------
@@ -605,50 +653,18 @@ export async function initAccount(ctx) {
         }
         return;
       }
-      const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
       const el = open(
         `<h2>Reports to review</h2>
         <p class="hint">${user.isAdmin ? "You see reports about members' dioramas. A report about an admin's diorama goes to a different admin, or to a random person if there is no other admin. If nobody else can be picked, it is left for Claude to handle." : 'You were picked to look at these reports. Open the diorama, then decide.'}</p>
-        ${
-          reports.length
-            ? reports
-                .map(
-                  (r) => `<div class="rrow" data-id="${r.id}">
-              <div><b>${esc(r.title)}</b> by ${esc(r.owner)}${r.visibility === 'gallery' ? '' : ' (hidden)'}</div>
-              <div class="reason">“${esc(r.reason)}”</div>
-              <div class="hint">${r.reporter ? 'Reported by ' + esc(r.reporter) + ' · ' : ''}${esc(when(r.createdAt))}${r.pickedForYou ? ' · you were picked to review this' : ''}</div>
-              <div class="dactions">
-                <button data-do="open" data-diorama="${r.dioramaId}">Open</button>
-                <button data-do="dismiss">Dismiss</button>
-                <button data-do="hide">Hide from gallery</button>
-                <button data-do="delete">Delete</button>
-              </div></div>`,
-                )
-                .join('')
-            : '<p class="hint">Nothing is waiting for you.</p>'
-        }
+        ${reports.map(reportRow).join('')}
         <div class="row"><button type="button" class="primary" data-act="close">Close</button></div>`,
         { wide: true },
       );
       $('[data-act=close]', el).onclick = close;
-      el.querySelectorAll('.rrow').forEach((row) => {
-        const id = Number(row.dataset.id);
-        row.querySelectorAll('[data-do]').forEach((b) => {
-          b.onclick = async () => {
-            const what = b.dataset.do;
-            if (what === 'open') return openDiorama(Number(b.dataset.diorama));
-            if (what === 'delete' && !confirm('Delete this diorama for good? The owner will lose it.')) return;
-            try {
-              await api('POST', `/api/reports/${id}/action`, { action: what });
-              ctx.toast(what === 'dismiss' ? 'Report dismissed.' : what === 'hide' ? 'Hidden from the gallery.' : 'Diorama deleted.');
-              await refreshMe();
-              if (user && user.pendingReports > 0) reportsView();
-              else close(); // nothing left: this window closes (and a picked reviewer's button goes away)
-            } catch (err) {
-              ctx.toast(err.message);
-            }
-          };
-        });
+      wireReportRows(el, async () => {
+        await refreshMe();
+        if (user && user.pendingReports > 0) reportsView();
+        else close(); // nothing left: this window closes (and a picked reviewer's button goes away)
       });
     } catch (err) {
       ctx.toast(err.message);
@@ -676,20 +692,21 @@ export async function initAccount(ctx) {
     }
   }
 
+  const feedbackRow = (f) => `<button type="button" data-thread="${f.id}" class="${f.unread ? 'unread' : ''}">
+      <span>${f.unread ? '● ' : ''}${esc(f.message.length > 90 ? f.message.slice(0, 90) + '…' : f.message)}</span>
+      <span class="meta">${KIND_NAMES[f.kind] || f.kind} · from ${esc(f.from)} · ${f.replies} repl${f.replies === 1 ? 'y' : 'ies'} · ${esc(whenText(f.updatedAt))}${f.status === 'open' ? '' : ' · closed'}</span>
+    </button>`;
+
   // The inbox, for Claude's account only: every open request, whoever sent it.
   async function feedbackListView() {
     open('<h2>Feedback</h2><p class="hint">Loading…</p>');
     try {
       const { feedback } = await api('GET', '/api/feedback');
       refreshMe().catch(() => {});
-      const row = (f) => `<button type="button" data-thread="${f.id}" class="${f.unread ? 'unread' : ''}">
-          <span>${f.unread ? '● ' : ''}${esc(f.message.length > 90 ? f.message.slice(0, 90) + '…' : f.message)}</span>
-          <span class="meta">${KIND_NAMES[f.kind] || f.kind} · from ${esc(f.from)} · ${f.replies} repl${f.replies === 1 ? 'y' : 'ies'} · ${esc(whenText(f.updatedAt))}${f.status === 'open' ? '' : ' · closed'}</span>
-        </button>`;
       const el = open(
         `<h2>Feedback</h2>
         <p class="hint">Open requests from everyone. Open one to reply or close it.</p>
-        <div class="threadlist">${feedback.length ? feedback.map(row).join('') : '<span class="hint">Nothing open.</span>'}</div>
+        <div class="threadlist">${feedback.length ? feedback.map(feedbackRow).join('') : '<span class="hint">Nothing open.</span>'}</div>
         <div class="row"><button type="button" class="primary" data-act="close">Close</button></div>`,
       );
       $('[data-act=close]', el).onclick = close;
