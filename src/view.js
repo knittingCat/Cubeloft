@@ -39,6 +39,7 @@ const smooth = (u) => u * u * (3 - 2 * u);
 // A walk of total time T over L cells: speed up quickly, keep pace, slow down. Returns the distance covered and the speed at time tau.
 function walkAlong(tau, T, L) {
   const V = WALK_SPEED;
+  tau = Math.max(0, tau); // before the walk starts nothing has been covered
   if (tau <= WALK_UP) return { s: (V * tau * tau) / (2 * WALK_UP), v: (V * tau) / WALK_UP };
   const r = T - tau;
   if (r <= WALK_DOWN) return { s: L - (V * Math.max(r, 0) ** 2) / (2 * WALK_DOWN), v: (V * Math.max(r, 0)) / WALK_DOWN };
