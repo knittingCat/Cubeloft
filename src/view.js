@@ -24,6 +24,8 @@ export function placeSwitchNumber(T, num, rootQ, innerEuler) {
 
 const DOOR_OPEN_ANGLE = -Math.PI / 2; // hinge turn of a fully open door
 const WALK_SPEED = 1.4; // cells per second (about a person's walking pace: the figure is ~1.5 cells tall)
+const WALK_UP = 0.12; // seconds to get up to pace (short, so a walk and a door set to the same time visibly start together)
+const WALK_DOWN = 0.4; // seconds to slow to a stop at the end
 const STRIDE = 1.5; // cells covered by one full leg cycle (two steps)
 const TURN_TIME = 0.3; // seconds spent turning on the spot before walking off
 const DOOR_TIME = 0.7; // seconds for a door to swing open or shut
@@ -31,6 +33,14 @@ const SWITCH_TIME = 0.4; // seconds a switch step takes in the animation
 const HANG_REACH = 7; // a lamp hanging from a ceiling lights the floor strongly when it is this many blocks below, or closer
 const LAMP_LEVEL = 14; // the light level of the cell a lit lamp hangs in (a glowing block gives its level minus one next to it)
 const smooth = (u) => u * u * (3 - 2 * u);
+// A walk of total time T over L cells: speed up quickly, keep pace, slow down. Returns the distance covered and the speed at time tau.
+function walkAlong(tau, T, L) {
+  const V = WALK_SPEED;
+  if (tau <= WALK_UP) return { s: (V * tau * tau) / (2 * WALK_UP), v: (V * tau) / WALK_UP };
+  const r = T - tau;
+  if (r <= WALK_DOWN) return { s: L - (V * Math.max(r, 0) ** 2) / (2 * WALK_DOWN), v: (V * Math.max(r, 0)) / WALK_DOWN };
+  return { s: (V * WALK_UP) / 2 + V * (tau - WALK_UP), v: V };
+}
 const angleDiff = (a, b) => ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI; // shortest signed turn from a to b
 
 // glow = how much faces next to a lamp or glowing block shine on their own (they matter most when the sky is dark)
@@ -1362,7 +1372,7 @@ export class DioramaView {
         const L = Math.hypot(to.x - rec.at.x, to.z - rec.at.z);
         if (L < 0.01) continue;
         const heading = Math.atan2(to.x - rec.at.x, to.z - rec.at.z);
-        const walkT = L / WALK_SPEED + 0.4; // the ends are eased, so a little longer than L / speed
+        const walkT = L / WALK_SPEED + (WALK_UP + WALK_DOWN) / 2; // the ends are eased, so a little longer than L / speed
         dur = walkT; // the turn happens as they set off, so a door or switch "at the same time" really is at the same time
         rec.segs.push({ t0: start, t1: start + dur, walkT, L, from: { x: rec.at.x, y: rec.at.y, z: rec.at.z }, to, heading, faceFrom: rec.at.facing });
         rec.at = { ...to, facing: heading };
@@ -1419,14 +1429,12 @@ export class DioramaView {
         pos = seg.from;
         facing = seg.faceFrom + angleDiff(seg.faceFrom, seg.heading) * smooth(tau / TURN_TIME);
       } else {
-        const u = Math.min(1, tau / seg.walkT);
-        const s = seg.L * smooth(u);
+        const { s, v } = walkAlong(tau, seg.walkT, seg.L);
         const f = s / seg.L;
         pos = { x: seg.from.x + (seg.to.x - seg.from.x) * f, y: seg.from.y + (seg.to.y - seg.from.y) * f, z: seg.from.z + (seg.to.z - seg.from.z) * f };
         facing = tau < TURN_TIME ? seg.faceFrom + angleDiff(seg.faceFrom, seg.heading) * smooth(tau / TURN_TIME) : seg.heading;
         phase = s / STRIDE;
-        const speed = (seg.L * 6 * u * (1 - u)) / seg.walkT; // cells per second right now
-        amp = Math.min(1, speed / 1.2);
+        amp = Math.min(1, v / 1.2);
       }
     }
     const holder = entry.group;
