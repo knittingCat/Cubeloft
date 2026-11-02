@@ -933,8 +933,54 @@ function renderAnimSteps() {
 }
 
 function setAnimMode(mode, hint = '') {
+  if (animMode === 'turnDest' && mode !== 'turnDest') endTurnPreview();
   animMode = mode;
   $('#animHint').textContent = hint;
+}
+
+// Turn tool, after a person is picked: hold Left/Right to turn them (a tap is a small step, holding keeps turning),
+// Enter adds the step. The step stores a cell far off in the way they face, as clicking a spot does.
+const TURN_PREVIEW_RATE = (Math.PI * 2) / 3; // radians a second while a key is held
+let turnAngle = 0;
+let turnHeld = 0; // 1 = turning left, -1 = right, 0 = no key held
+let turnPreview = false;
+let turnLoop = 0;
+function startTurnPreview(id) {
+  const p = world.getPerson(id);
+  turnAngle = p ? ((p.rot * 3 + p.twist) * Math.PI) / 6 : 0;
+  turnPreview = false;
+}
+function endTurnPreview() {
+  turnHeld = 0;
+  if (turnPreview) view.setPersonFacing(animPerson, null);
+  turnPreview = false;
+}
+function holdTurn(dir) {
+  turnHeld = dir;
+  turnPreview = true;
+  turnAngle += dir * (Math.PI / 12); // a tap turns 15 degrees
+  view.setPersonFacing(animPerson, turnAngle);
+  if (turnLoop) return;
+  const since = performance.now();
+  let last = since;
+  const tick = (now) => {
+    if (!turnHeld || animMode !== 'turnDest') return void (turnLoop = 0);
+    if (now - since > 300) {
+      turnAngle += (turnHeld * (now - last) * TURN_PREVIEW_RATE) / 1000;
+      view.setPersonFacing(animPerson, turnAngle);
+    }
+    last = now;
+    turnLoop = requestAnimationFrame(tick);
+  };
+  turnLoop = requestAnimationFrame(tick);
+}
+function confirmTurn() {
+  const p = world.getPerson(animPerson);
+  if (!p) return;
+  const step = { type: 'turn', person: animPerson, x: p.x + Math.round(Math.sin(turnAngle) * 12), z: p.z + Math.round(Math.cos(turnAngle) * 12) };
+  endTurnPreview();
+  addAnimStep(step);
+  setAnimMode(null, 'Added. It plays once now; press Play to watch it all, or add more steps.');
 }
 
 function toggleAnimBar(show = !animOpen()) {
@@ -1033,7 +1079,8 @@ function animClick(e, button) {
     const id = view.personAt(ray) ?? personAtCells(hit);
     if (id == null) return toast('Click a person.');
     animPerson = id;
-    setAnimMode('turnDest', `Click the spot ${personLabel(id)} should turn to face (right-click to cancel).`);
+    startTurnPreview(id);
+    setAnimMode('turnDest', `Hold the left and right arrow keys to turn ${personLabel(id)}, then press Enter; or click the spot they should face (right-click to cancel).`);
   } else if (animMode === 'turnDest') {
     if (!hit || !hit.prev || !world.getPerson(animPerson)) return;
     addAnimStep({ type: 'turn', person: animPerson, x: hit.prev[0], z: hit.prev[2] });
@@ -1755,6 +1802,10 @@ function wireUI() {
   $('#firstPersonBtn').onclick = toggleFly;
   view.onFlyMove = () => refreshHover();
   $('#lookMatch').onclick = () => view.matchHeadToBody();
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') turnHeld = 0;
+  });
+  window.addEventListener('blur', () => (turnHeld = 0));
   window.addEventListener('keydown', (e) => {
     if (view.looking) {
       if (e.key === 'Escape' || e.key === 'Enter') stopLooking();
@@ -1764,6 +1815,14 @@ function wireUI() {
     if (e.target.closest?.('input, textarea, select') || document.querySelector('dialog[open]')) return;
     if (view.flying && e.key === 'Escape') return toggleFly();
     if (animOpen() && e.key === 'Escape') return animMode ? setAnimMode(null, 'Cancelled.') : toggleAnimBar(false);
+    if (animMode === 'turnDest' && !view.animating) {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (!e.repeat) holdTurn(e.key === 'ArrowLeft' ? 1 : -1);
+        return;
+      }
+      if (e.key === 'Enter' && turnPreview) return confirmTurn();
+    }
     if (e.key.toLowerCase() === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey && !isViewOnly()) return toggleAnimBar();
     if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) return toggleFly();
     if (isViewOnly()) return;

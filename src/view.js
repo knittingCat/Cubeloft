@@ -1008,6 +1008,16 @@ export class DioramaView {
     });
   }
 
+  // Show a person turned to face `angle` (radians; they face (sin, 0, cos)) while a Turn step is being chosen.
+  // With null they go back to the way they really face.
+  setPersonFacing(id, angle) {
+    const entry = this.personGroups.get(id);
+    const p = this.world.getPerson(id);
+    if (!entry || !p) return;
+    entry.group.children[0].rotation.y = angle ?? ((p.rot * 3 + p.twist) * Math.PI) / 6;
+    this.dirty = true;
+  }
+
   rebuildPeople() {
     this.dirty = true;
     const alive = new Set(this.world.people.map((p) => p.id));
