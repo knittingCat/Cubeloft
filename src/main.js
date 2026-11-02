@@ -1028,7 +1028,7 @@ function animClick(e, button) {
     const id = view.personAt(ray) ?? personAtCells(hit);
     if (id == null) return toast('Click a person.');
     startLooking(id);
-    setAnimMode(null, `You are ${personLabel(id)}. Press Play: you walk and turn with the steps you have, as everyone else does. Without steps, the arrow keys move you (Shift+arrows turn).`);
+    setAnimMode(null, `You are ${personLabel(id)}. Press Play: you walk and turn with the steps you have, as everyone else does. Without steps, the arrow keys move you (Shift+arrows turn; hold them to keep turning).`);
   } else if (animMode === 'turnPerson') {
     const id = view.personAt(ray) ?? personAtCells(hit);
     if (id == null) return toast('Click a person.');

@@ -32,6 +32,7 @@ const DOOR_TIME = 0.7; // seconds for a door to swing open or shut
 const SWITCH_TIME = 0.4; // seconds a switch step takes in the animation
 const HANG_REACH = 7; // a lamp hanging from a ceiling lights the floor strongly when it is this many blocks below, or closer
 const LAMP_LEVEL = 14; // the light level of the cell a lit lamp hangs in (a glowing block gives its level minus one next to it)
+const TURN_RATE = 4; // 30 degree steps per second while a turn key is held in a person's view
 const PULL_DIST = 2; // cells a person walks away while pulling a door shut behind them
 const PULL_REACH = 1.1; // how far back (radians) their arm reaches to the door
 const smooth = (u) => u * u * (3 - 2 * u);
@@ -1709,9 +1710,14 @@ export class DioramaView {
       e.preventDefault();
       if (this.following()) return; // the animation is walking you; the arrows work again when it stops
       if (e.shiftKey) {
-        if (e.key === 'ArrowLeft') L.k = (L.k + 1) % 12;
-        else if (e.key === 'ArrowRight') L.k = (L.k + 11) % 12;
-        else if (e.key === 'ArrowUp') L.pose = L.pose === 'lying' ? 'standing' : 'lyingFront'; // fall forward / get up from your back
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          if (e.repeat) return; // holding is handled by the frame loop (updateTurn), not by key repeat
+          const dir = e.key === 'ArrowLeft' ? 1 : -1;
+          L.k = (L.k + dir + 12) % 12; // a tap turns one 30 degree step; holding on keeps turning smoothly
+          L.kf = L.k;
+          const now = performance.now();
+          L.turn = { dir, t0: now, last: now };
+        } else if (e.key === 'ArrowUp') L.pose = L.pose === 'lying' ? 'standing' : 'lyingFront'; // fall forward / get up from your back
         else L.pose = L.pose === 'lyingFront' ? 'standing' : 'lying'; // fall backward / get up from your front
       } else {
         const a = (L.k * Math.PI) / 6;
@@ -1727,8 +1733,38 @@ export class DioramaView {
     this.canvas.addEventListener('pointermove', L.move);
     this.canvas.addEventListener('pointerup', L.up);
     this.canvas.addEventListener('pointercancel', L.up);
+    L.keyup = (e) => {
+      if (e.key === 'Shift' || e.key.startsWith('Arrow')) this.stopTurn();
+    };
+    L.blur = () => this.stopTurn();
     window.addEventListener('keydown', L.key);
+    window.addEventListener('keyup', L.keyup);
+    window.addEventListener('blur', L.blur);
     return true;
+  }
+
+  // Holding Shift + Left/Right: after a short pause the person keeps turning smoothly (TURN_RATE 30 degree steps a second).
+  updateTurn() {
+    const L = this.looking;
+    const T = L?.turn;
+    if (!T) return;
+    const now = performance.now();
+    if (this.following()) return this.stopTurn();
+    if (now - T.t0 > 350) {
+      L.kf = (((L.kf ?? L.k) + (T.dir * (now - T.last)) / 1000 * TURN_RATE) % 12 + 12) % 12;
+      L.k = Math.round(L.kf) % 12;
+      this.applyLook();
+    }
+    T.last = now;
+  }
+
+  // Let go of the turn keys: settle on the nearest 30 degree step.
+  stopTurn() {
+    const L = this.looking;
+    if (!L?.turn) return;
+    L.turn = null;
+    L.kf = L.k;
+    this.applyLook();
   }
 
   // Point the head the same way as the body (straight ahead, level).
@@ -1773,7 +1809,7 @@ export class DioramaView {
     const L = this.looking;
     if (this.following()) return this.followCamera(); // the animation is moving you; only the head drag applies
     const lying = L.pose === 'lying' || L.pose === 'lyingFront';
-    const a = (L.k * Math.PI) / 6; // the figure faces (sin a, 0, cos a)
+    const a = ((L.kf ?? L.k) * Math.PI) / 6; // the figure faces (sin a, 0, cos a); kf is the smooth angle while a turn key is held
     L.headYaw = Math.max(-Math.PI, Math.min(Math.PI, L.headYaw));
     L.headPitch = Math.max(-0.7, Math.min(0.7, L.headPitch));
     const off = this.offset;
@@ -1798,6 +1834,8 @@ export class DioramaView {
     this.canvas.removeEventListener('pointerup', L.up);
     this.canvas.removeEventListener('pointercancel', L.up);
     window.removeEventListener('keydown', L.key);
+    window.removeEventListener('keyup', L.keyup);
+    window.removeEventListener('blur', L.blur);
     L.group.visible = true;
     this.looking = null;
     this.camera.rotation.order = 'XYZ';
@@ -2170,6 +2208,7 @@ export class DioramaView {
     if (this.flowWaiting) this.updateFlowReveal();
     if (this.flying) this.updateFly();
     if (this.anim) this.updateAnimation();
+    if (this.looking?.turn) this.updateTurn();
     let eased = false;
     if (this.zoomGoal != null && !this.looking && !this.flying) {
       const off = this.camera.position.clone().sub(t);
