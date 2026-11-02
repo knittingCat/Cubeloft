@@ -1515,7 +1515,7 @@ export class DioramaView {
       else {
         if (ev.pull) {
           const p = Math.min(1, walkAlong(t - ev.pull.seg.t0, ev.pull.seg.walkT, ev.pull.seg.L).s / ev.pull.D);
-          v = ev.from + (ev.to - ev.from) * p * (2 - p); // pulled along by the walk, easing only as it meets the frame
+          v = ev.from + (ev.to - ev.from) * p; // pulled along at the pace of the walk, so it eases only where their walk does
         } else if (t > ev.t0) v = ev.from + (ev.to - ev.from) * smooth((t - ev.t0) / DOOR_TIME);
         break;
       }
