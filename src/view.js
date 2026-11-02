@@ -1348,6 +1348,7 @@ export class DioramaView {
     for (const [i, s] of steps.entries()) {
       const start = s.together ? prevStart : end;
       stepStart[i] = start;
+      prevStart = start; // set before any `continue` below, so a step that does nothing still anchors the "same time" steps after it
       let dur = 0;
       if (s.type === 'walk') {
         const p = world.getPerson(s.person);
@@ -1362,7 +1363,7 @@ export class DioramaView {
         if (L < 0.01) continue;
         const heading = Math.atan2(to.x - rec.at.x, to.z - rec.at.z);
         const walkT = L / WALK_SPEED + 0.4; // the ends are eased, so a little longer than L / speed
-        dur = TURN_TIME + walkT;
+        dur = walkT; // the turn happens as they set off, so a door or switch "at the same time" really is at the same time
         rec.segs.push({ t0: start, t1: start + dur, walkT, L, from: { x: rec.at.x, y: rec.at.y, z: rec.at.z }, to, heading, faceFrom: rec.at.facing });
         rec.at = { ...to, facing: heading };
       } else if (s.type === 'turn') {
@@ -1391,7 +1392,6 @@ export class DioramaView {
         lights.get(s.group).events.push({ t: start, to: s.on });
         dur = SWITCH_TIME;
       } else if (s.type === 'wait') dur = s.seconds;
-      prevStart = start;
       end = Math.max(end, start + dur);
       total = Math.max(total, start + dur);
     }
@@ -1415,15 +1415,15 @@ export class DioramaView {
         pos = seg.to;
         facing = seg.heading;
         phase = seg.L / STRIDE; // stand with the legs where the walk ended: reset below
-      } else if (tau < TURN_TIME) {
+      } else if (seg.walkT === 0) { // a turn on the spot
         pos = seg.from;
         facing = seg.faceFrom + angleDiff(seg.faceFrom, seg.heading) * smooth(tau / TURN_TIME);
       } else {
-        const u = Math.min(1, (tau - TURN_TIME) / seg.walkT);
+        const u = Math.min(1, tau / seg.walkT);
         const s = seg.L * smooth(u);
         const f = s / seg.L;
         pos = { x: seg.from.x + (seg.to.x - seg.from.x) * f, y: seg.from.y + (seg.to.y - seg.from.y) * f, z: seg.from.z + (seg.to.z - seg.from.z) * f };
-        facing = seg.heading;
+        facing = tau < TURN_TIME ? seg.faceFrom + angleDiff(seg.faceFrom, seg.heading) * smooth(tau / TURN_TIME) : seg.heading;
         phase = s / STRIDE;
         const speed = (seg.L * 6 * u * (1 - u)) / seg.walkT; // cells per second right now
         amp = Math.min(1, speed / 1.2);
