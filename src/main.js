@@ -418,6 +418,7 @@ function attachWorld(w) {
       syncLightBar();
     }
     updateStatus();
+    if (isViewOnly() && e && e.type === 'lights') return; // flipping a switch in someone else's diorama is not saved or sent
     scheduleSave(!!(e && e.remote));
     live.send(e);
   });
@@ -815,7 +816,7 @@ function lightClick(ray, hit, erasing) {
 }
 
 function flipSwitch(l) {
-  const on = world.setGroup(l.group);
+  const on = world.setGroup(l.group, undefined, { record: !isViewOnly() });
   toast(on ? `Switch ${l.group} is on.` : `Switch ${l.group} is off.`);
 }
 
@@ -1178,7 +1179,13 @@ function personAtCells(hit) {
 async function actAt(e, button) {
   if (view.looking) return;
   if (isViewOnly()) {
-    // someone else's diorama: nothing can be changed (you can still go into first person with the banner button or F)
+    // someone else's diorama: nothing can be changed (you can still go into first person with the banner button or F),
+    // except that you can flip its switches to see the lights; that stays on this screen (no undo, nothing saved or sent)
+    if (button === 2 || e.button === 2) return;
+    const { ray, hit } = currentHit(e);
+    const lightId = lightUnderPointer(ray, hit);
+    const l = lightId != null ? world.getLight(lightId) : null;
+    if (l && l.kind === 'switch') flipSwitch(l);
     return;
   }
   if (animOpen()) return animClick(e, button); // while the Animate bar is open, clicks choose animation steps, not blocks
