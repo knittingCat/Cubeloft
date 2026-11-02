@@ -34,7 +34,6 @@ const HANG_REACH = 7; // a lamp hanging from a ceiling lights the floor strongly
 const LAMP_LEVEL = 14; // the light level of the cell a lit lamp hangs in (a glowing block gives its level minus one next to it)
 const TURN_RATE = 4; // 30 degree steps per second while a turn key is held in a person's view
 const PULL_DIST = 2; // cells a person walks away while pulling a door shut behind them
-const PULL_REACH = 1.1; // how far back (radians) their arm reaches to the door
 const smooth = (u) => u * u * (3 - 2 * u);
 // A walk of total time T over L cells: speed up quickly, keep pace, slow down. Returns the distance covered and the speed at time tau.
 function walkAlong(tau, T, L) {
@@ -1420,7 +1419,7 @@ export class DioramaView {
       total = Math.max(total, start + dur);
     }
     // Someone who sets off from a doorway just as its door closes pulls it shut behind them: the door follows their walk
-    // (it is shut once they are PULL_DIST cells away) and their arm reaches back to it until then.
+    // (it is shut once they are PULL_DIST cells away).
     for (const [id, rec] of doors) {
       const d = world.getDoor(id);
       for (const ev of rec.events) {
@@ -1433,7 +1432,6 @@ export class DioramaView {
           while (t < seg.t1 && walkAlong(t - seg.t0, seg.walkT, seg.L).s < D) t += 0.02;
           ev.pull = { seg, D };
           ev.t1 = t;
-          (prec.pulls ||= []).push({ t0: seg.t0, t1: t, seg, D });
           break;
         }
       }
@@ -1495,14 +1493,6 @@ export class DioramaView {
       limbs.legs[1].rotation.x = -swing * 0.55;
       limbs.arms[0].rotation.x = -swing * 0.45; // each arm swings against the leg on its own side
       limbs.arms[1].rotation.x = swing * 0.45;
-      const pull = rec.pulls?.find((q) => t >= q.t0 && t <= q.t1);
-      if (pull) {
-        // reaching back to hold the door, letting go as it meets the frame
-        const pt = t - pull.t0;
-        const p = Math.min(1, walkAlong(pt, pull.seg.walkT, pull.seg.L).s / pull.D);
-        const w = Math.min(1, pt / 0.2) * (1 - smooth(Math.min(1, Math.max(0, (p - 0.7) / 0.3))));
-        limbs.arms[0].rotation.x += (PULL_REACH - limbs.arms[0].rotation.x) * w;
-      }
     }
   }
 
