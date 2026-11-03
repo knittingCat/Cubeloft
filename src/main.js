@@ -1996,9 +1996,16 @@ async function main() {
     try {
       const saved = JSON.parse(store.get('cloud') || 'null');
       if (saved && saved.id) {
-        cloud = { ...saved, mine: true };
-        cloudState = 'Autosaving to your account';
-        syncLive();
+        // Open the copy saved on the server first (it may have been changed elsewhere, or by someone it is shared with);
+        // if that does not work (offline, signed out, deleted), keep the copy this browser saved.
+        try {
+          const d = await api('GET', `/api/dioramas/${saved.id}`);
+          await loadFromText(d.data, { cloud: { id: d.id, title: d.title, owner: d.owner, mine: d.mine, isOwner: d.isOwner, visibility: d.visibility, classId: d.classId, classEdit: d.classEdit, shareEdit: d.shareEdit } });
+        } catch {
+          cloud = { ...saved, mine: true };
+          cloudState = 'Autosaving to your account';
+          syncLive();
+        }
       }
     } catch {}
   }
