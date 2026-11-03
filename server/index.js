@@ -17,6 +17,22 @@ const MAXOS_ORIGIN = (process.env.MAXOS_ORIGIN || 'https://maxos-1oe3.onrender.c
 const bad = (res, status, error, extra = {}) => res.status(status).json({ error, ...extra });
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
+// Closed feedback chats and handled reports are deleted a few days after they were closed. There is no timer (the database
+// should be able to sleep): it runs when someone signed in opens the site, at most once an hour.
+const KEEP_HANDLED_DAYS = 3;
+let lastPurge = 0;
+async function purgeHandled() {
+  if (Date.now() - lastPurge < 3600e3) return;
+  lastPurge = Date.now();
+  try {
+    await query(`DELETE FROM ${T.reports} WHERE status <> 'open' AND COALESCE(handled_at, created_at) < NOW() - make_interval(days => $1)`, [KEEP_HANDLED_DAYS]);
+    await query(`DELETE FROM ${T.feedback} WHERE status <> 'open' AND COALESCE(handled_at, updated_at) < NOW() - make_interval(days => $1)`, [KEEP_HANDLED_DAYS]); // its messages go with it
+  } catch (err) {
+    lastPurge = 0; // try again on the next visit
+    console.error('purging handled reports and feedback failed:', err.message);
+  }
+}
+
 function readCookie(req, name) {
   for (const part of (req.headers.cookie || '').split(';')) {
     const [k, ...v] = part.trim().split('=');
@@ -202,6 +218,7 @@ export function createApp() {
   // --- accounts ---
   app.get('/api/me', wrap(async (req, res) => {
     if (!req.user) return res.json({ user: null });
+    await purgeHandled();
     res.json({ user: { ...publicUser(req.user), pendingReports: await countReports(req.user), feedbackReader: canReadAllFeedback(req.user), feedbackUnread: await countFeedbackUnread(req.user) } });
   }));
 
