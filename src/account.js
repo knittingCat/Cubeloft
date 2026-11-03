@@ -586,20 +586,16 @@ export async function initAccount(ctx) {
     Promise.all([api('GET', '/api/reports'), api('GET', '/api/feedback')])
       .then(([{ reports }, { feedback }]) => {
         refreshMe().catch(() => {});
-        const hasOpen = feedback.some((f) => f.status === 'open');
         const el = open(
           `<h2>Admin</h2>
           <h3>Reports${reports.length ? ` (${reports.length} waiting)` : ''}</h3>
           ${reports.length ? reports.map(reportRow).join('') : '<p class="hint">Nothing is waiting for you.</p>'}
           <h3>Feedback</h3>
           <div class="threadlist">${feedback.length ? feedback.map(feedbackRow).join('') : '<span class="hint">Nothing open.</span>'}</div>
-          ${user.feedbackReader || hasOpen ? '' : '<div class="row"><button type="button" data-act="newfeedback">Request a feature or report an error</button></div>'}
           <div class="row"><button type="button" class="primary" data-act="close">Close</button></div>`,
           { wide: true },
         );
         $('[data-act=close]', el).onclick = close;
-        const nf = $('[data-act=newfeedback]', el);
-        if (nf) nf.onclick = feedbackView;
         wireReportRows(el, adminView);
         el.querySelectorAll('[data-thread]').forEach((b) => (b.onclick = () => chatView(Number(b.dataset.thread))));
       })
