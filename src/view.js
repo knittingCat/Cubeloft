@@ -26,6 +26,7 @@ const DOOR_OPEN_ANGLE = -Math.PI / 2; // hinge turn of a fully open door
 const WALK_SPEED = 1.4; // cells per second (about a person's walking pace: the figure is ~1.5 cells tall)
 const WALK_UP = 0.12; // seconds to get up to pace (short, so a walk and a door set to the same time visibly start together)
 const WALK_DOWN = 0.4; // seconds to slow to a stop at the end
+const FLOOR_LIFT = 0.015; // a cursor outline on the stand floats this far above it: its bottom edges would otherwise flicker against the floor
 const STRIDE = 1.5; // cells covered by one full leg cycle (two steps)
 const TURN_TIME = 0.3; // seconds spent turning on the spot before walking off
 const DOOR_TIME = 0.7; // seconds for a door to swing open or shut
@@ -1882,7 +1883,7 @@ export class DioramaView {
     this.ghost.geometry = stair == null ? this.geometry : stairGeometry(stair); // stairs show their steps and which way they climb
     const off = this.offset;
     const offZ = this.offsetZ;
-    this.ghost.position.set(cell[0] + 0.5 - off, cell[1] + 0.5, cell[2] + 0.5 - offZ);
+    this.ghost.position.set(cell[0] + 0.5 - off, cell[1] + 0.5 + (cell[1] === 0 ? FLOOR_LIFT : 0), cell[2] + 0.5 - offZ);
     this.ghost.scale.setScalar(scale);
     this.ghost.material.color.set(color);
     this.ghost.material.opacity = opacity;
@@ -1931,7 +1932,7 @@ export class DioramaView {
       const c = cells[i];
       g.visible = !!c;
       if (!c) return;
-      g.position.set(c[0] + 0.5 - off, c[1] + 0.5, c[2] + 0.5 - offZ);
+      g.position.set(c[0] + 0.5 - off, c[1] + 0.5 + (c[1] === 0 ? FLOOR_LIFT : 0), c[2] + 0.5 - offZ);
       g.scale.setScalar(scale);
       g.material.color.set(color);
       g.material.opacity = opacity;
