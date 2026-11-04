@@ -868,6 +868,17 @@ export function createApp() {
     res.json({ ok: true });
   }));
 
+  // Open a closed chat again (the same people who can close one). A person can have only one open at a time.
+  app.post('/api/feedback/:id/reopen', needUser, wrap(async (req, res) => {
+    const th = await feedbackThread(req, res);
+    if (!th) return;
+    const { f } = th;
+    if (f.status === 'open') return bad(res, 400, 'It is already open.');
+    if (f.user_id != null && (await query(`SELECT 1 FROM ${T.feedback} WHERE user_id = $1 AND status = 'open' LIMIT 1`, [f.user_id])).rowCount > 0) return bad(res, 400, 'That person already has an open conversation.');
+    await query(`UPDATE ${T.feedback} SET status = 'open', handled_at = NULL, updated_at = NOW(), admin_unread = TRUE WHERE id = $1`, [f.id]);
+    res.json({ ok: true });
+  }));
+
   // --- reviewing reports ---
   app.get('/api/reports', needUser, wrap(async (req, res) => {
     const me = Number(req.user.id);
