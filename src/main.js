@@ -203,23 +203,63 @@ for (const block of BLOCKS) {
   const btn = document.createElement('button');
   btn.className = 'swatch';
   btn.dataset.id = block.id;
-  btn.title = block.name + (block.id <= 9 ? ` (${block.id})` : '');
+  btn.title = block.name;
   btn.setAttribute('aria-label', block.name);
   const cv = document.createElement('canvas');
   cv.width = cv.height = 16;
   cv.getContext('2d').drawImage(textureCanvas(topTextureName(block)), 0, 0);
   btn.appendChild(cv);
-  if (block.id <= 9) {
-    const k = document.createElement('kbd');
-    k.textContent = block.id;
-    btn.appendChild(k);
-  }
   btn.addEventListener('click', () => {
     selectBlock(block.id);
     if (tool !== 'build' && tool !== 'box' && tool !== 'label') setTool('build');
   });
+  // right-click (or long-press) asks which number key should pick this block
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const n = Number(prompt(`Which number key (1-9) should pick ${block.name}?`, String(slots.indexOf(block.id) + 1 || '')));
+    if (Number.isInteger(n) && n >= 1 && n <= 9) assignSlot(n, block.id);
+  });
   palette.appendChild(btn);
 }
+
+// The number keys 1-9 pick blocks. Which block is on which key can be changed: select a block and press Shift + a number
+// (Shift + 0 puts the original blocks back), or right-click a block in the palette. Kept in this browser.
+const DEFAULT_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+let slots = (() => {
+  try {
+    const s = JSON.parse(store.get('slots') || 'null');
+    if (Array.isArray(s) && s.length === 9 && new Set(s).size === 9 && s.every((id) => BLOCKS.some((b) => b.id === id))) return s;
+  } catch {}
+  return DEFAULT_SLOTS.slice();
+})();
+function refreshSlots() {
+  $$('.swatch').forEach((b) => {
+    const id = Number(b.dataset.id);
+    b.querySelector('kbd')?.remove();
+    const n = slots.indexOf(id) + 1;
+    b.title = BLOCK_BY_ID.get(id).name + (n ? ` (${n})` : '');
+    if (n) {
+      const k = document.createElement('kbd');
+      k.textContent = n;
+      b.appendChild(k);
+    }
+  });
+}
+function assignSlot(n, id) {
+  const was = slots.indexOf(id);
+  if (was >= 0) slots[was] = slots[n - 1]; // the block that was on key n takes this block's old key
+  slots[n - 1] = id;
+  store.set('slots', JSON.stringify(slots));
+  refreshSlots();
+  toast(`${BLOCK_BY_ID.get(id).name} is now on key ${n}.`);
+}
+function resetSlots() {
+  slots = DEFAULT_SLOTS.slice();
+  store.set('slots', JSON.stringify(slots));
+  refreshSlots();
+  toast('The number keys are back to the original blocks.');
+}
+refreshSlots();
 
 // Stairs: a switch in front of the blocks (G) that makes building place stairs of the selected block, and a button to turn them (R).
 {
@@ -1858,8 +1898,14 @@ function wireUI() {
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && selection) {
       e.preventDefault();
       deleteSelection();
+    } else if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+      e.preventDefault();
+      assignSlot(Number(e.code.slice(5)), selected); // Shift + number: put the selected block on that key
+    } else if (e.shiftKey && e.code === 'Digit0') {
+      e.preventDefault();
+      resetSlots();
     } else if (/^[1-9]$/.test(e.key)) {
-      selectBlock(Number(e.key));
+      selectBlock(slots[Number(e.key) - 1]);
     } else if (key === 'b') setTool('build');
     else if (key === 'e') setTool('erase');
     else if (key === 'x') setTool('box');
