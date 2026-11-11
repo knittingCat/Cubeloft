@@ -118,4 +118,4 @@ There is no password reset, because accounts have no email. A forgotten password
 
 ## Licence
 
-Three.js and OrbitControls in `vendor/` are MIT licensed. Add your own licence for the rest of the code before sharing it widely.
+Cubeloft is MIT licensed; see `LICENSE`. Three.js and OrbitControls in `vendor/` are also MIT licensed (see `vendor/THREE-LICENSE`).

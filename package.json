@@ -2,6 +2,7 @@
   "name": "cubeloft",
   "version": "2.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Block diorama builder with accounts and a class gallery",
   "scripts": {
