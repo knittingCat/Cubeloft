@@ -1848,6 +1848,7 @@ function wireUI() {
   $('#flyBtn').onclick = toggleFly;
   $('#animFly').onclick = toggleFly;
   $('#flyDone').onclick = toggleFly;
+  $('#firstPersonBtn').onclick = toggleFly;
   view.onFlyMove = () => refreshHover();
   $('#lookMatch').onclick = () => view.matchHeadToBody();
   window.addEventListener('keyup', (e) => {
