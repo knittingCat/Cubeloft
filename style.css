@@ -20,6 +20,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 
 #banner { background: #3b3320; color: #ffe9a8; padding: .4rem .8rem; display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; font-size: .9rem; }
 #banner[hidden] { display: none; }
+#banner > span { flex: 1 1 8rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#banner > button { white-space: nowrap; }
 
 html, body { touch-action: pan-x pan-y; } /* scrolling still works, a two-finger pinch never zooms the page */
 #stage { flex: 1; min-height: 0; position: relative; touch-action: none; }

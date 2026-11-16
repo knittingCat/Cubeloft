@@ -471,8 +471,8 @@ function updateBanner(shared) {
   const viewingOthers = cloud && !cloud.mine;
   banner.hidden = !(shared || viewingOthers);
   $('#bannerText').textContent = viewingOthers
-    ? `Viewing “${cloud.title}” by ${cloud.owner}. Drag to look around, scroll to zoom, or go into first person.`
-    : "Viewing a shared diorama. Drag to look around, scroll to zoom, or go into first person.";
+    ? `Viewing “${cloud.title}” by ${cloud.owner}. Drag to look around, scroll to zoom.`
+    : "Viewing a shared diorama. Drag to look around, scroll to zoom.";
   $('#reportBtn').hidden = !(viewingOthers && accountApi);
   $('#cloneBtn').hidden = !accountApi;
   // Someone else's diorama: no toolbar, no palette, no editing.
@@ -1848,7 +1848,6 @@ function wireUI() {
   $('#flyBtn').onclick = toggleFly;
   $('#animFly').onclick = toggleFly;
   $('#flyDone').onclick = toggleFly;
-  $('#firstPersonBtn').onclick = toggleFly;
   view.onFlyMove = () => refreshHover();
   $('#lookMatch').onclick = () => view.matchHeadToBody();
   window.addEventListener('keyup', (e) => {
